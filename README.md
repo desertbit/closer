@@ -5,7 +5,7 @@
 
 ```go
 type Server struct {
-    *closer.Closer // Embedded
+    closer.Closer // Embedded
 }
 
 func New() *Server {
@@ -30,7 +30,7 @@ func main() {
 
 ```go
 type Server struct {
-    *closer.Closer // Embedded
+    closer.Closer // Embedded
     conn net.Conn
 }
 
