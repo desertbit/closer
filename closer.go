@@ -69,8 +69,8 @@ type Closer interface {
 //######################//
 
 type closer struct {
+	wg        sync.WaitGroup
 	mutex     sync.Mutex
-	wg        *sync.WaitGroup
 	closeChan chan struct{}
 	closeErr  error
 	funcs     []CloseFunc
@@ -106,14 +106,7 @@ func (c *closer) CloseChan() <-chan struct{} {
 }
 
 func (c *closer) CloserWaitGroup() *sync.WaitGroup {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if c.wg == nil {
-		c.wg = &sync.WaitGroup{}
-	}
-
-	return c.wg
+	return &c.wg
 }
 
 func (c *closer) Close() error {
@@ -126,10 +119,8 @@ func (c *closer) Close() error {
 	}
 	close(c.closeChan)
 
-	// Block if the wait group is defined.
-	if c.wg != nil {
-		c.wg.Wait()
-	}
+	// Block if the wait group is used.
+	c.wg.Wait()
 
 	var mErr *multierror.Error
 
