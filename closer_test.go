@@ -148,7 +148,7 @@ func TestCloseFuncsLIFO(t *testing.T) {
 
 func TestCloserWaitGroup(t *testing.T) {
 	c := New()
-	wg := c.CloseWaitGroup()
+	wg := c.CloserWaitGroup()
 	doneChan := make(chan struct{}, 4)
 
 	for i := 0; i < 4; i++ {

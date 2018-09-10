@@ -50,9 +50,9 @@ type Closer interface {
 	// soon as the closer is closed.
 	CloseChan() <-chan struct{}
 
-	// CloseWaitGroup returns the wait group for this closer.
+	// CloserWaitGroup returns the wait group for this closer.
 	// Use this wait group to wait before calling the close functions.
-	CloseWaitGroup() *sync.WaitGroup
+	CloserWaitGroup() *sync.WaitGroup
 
 	// IsClosed returns a boolean indicating
 	// if this instance was closed.
@@ -105,7 +105,7 @@ func (c *closer) CloseChan() <-chan struct{} {
 	return c.closeChan
 }
 
-func (c *closer) CloseWaitGroup() *sync.WaitGroup {
+func (c *closer) CloserWaitGroup() *sync.WaitGroup {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
