@@ -47,21 +47,28 @@ type Closer interface {
 	// Returns a hashicorp multierror.
 	Close() error
 
+	// CloseAndDone performs the same operation as Close(), but decrements
+	// the closer's wait group by one beforehand.
 	// Attention: Calling this without first adding to the WaitGroup by
 	// calling CloserAddWaitGroup() results in a panic.
 	CloseAndDone() error
 
-	// CloseChan channel which is closed as
+	// CloseChan returns a channel, which is closed as
 	// soon as the closer is closed.
 	CloseChan() <-chan struct{}
 
-	// TODO
+	// CloserAddWaitGroup adds the given delta to the closer's
+	// wait group.
 	CloserAddWaitGroup(delta int)
 
-	// TODO
+	// CloserOneWay creates a new child closer that has a one-way relationship
+	// with the current closer. This means that the child is closed whenever
+	// the parent closes, but not vice versa.
 	CloserOneWay(f ...CloseFunc) Closer
 
-	// TODO
+	// CloserTwoWay creates a new child closer that has a two-way relationship
+	// with the current closer. This means that the child is closed whenever
+	// the parent closes and vice versa.
 	CloserTwoWay(f ...CloseFunc) Closer
 
 	// IsClosed returns a boolean indicating
@@ -78,18 +85,33 @@ type Closer interface {
 //### Implementation ###//
 //######################//
 
-// The closer type TODO
+// The closer type is this package's implementation of the Closer interface.
 type closer struct {
-	// TODO
+	// An unbuffered channel that expresses whether the
+	// closer has been closed already.
+	// The channel itself gets closed to represent the closing
+	// of the closer, which leads to reads off of it to succeed.
 	closeChan chan struct{}
+	// The error collected by executing the Close() func
+	// and combining all encountered errors from the close funcs.
 	closeErr  error
 
+	// Synchronises the access to the following properties.
 	mutex    sync.Mutex
+	// The close funcs that are executed when this closer closes.
 	funcs    []CloseFunc
+	// The parent of this closer. May be nil.
 	parent   *closer
+	// The closer children that this closer spawned.
 	children []*closer
+	// Used to wait for external dependencies of the closer
+	// before the Close() method actually returns.
 	wg       sync.WaitGroup
 
+	// A flag that indicates whether this closer is a two-way closer.
+	// In comparison to a standard one-way closer, which closes when
+	// its parent closes, a two-way closer closes also its parent, when
+	// it itself gets closed.
 	twoWay bool
 }
 
@@ -210,7 +232,7 @@ func (c *closer) OnClose(f ...CloseFunc) {
 //### Private ###//
 //###############//
 
-// TODO
+// newCloser creates a new closer with the given close funcs.
 func newCloser(f ...CloseFunc) *closer {
 	return &closer{
 		closeChan: make(chan struct{}),
@@ -219,13 +241,14 @@ func newCloser(f ...CloseFunc) *closer {
 	}
 }
 
-// TODO
-func (c *closer) addChild(bidirectional bool, f ...CloseFunc) *closer {
+// addChild creates a new closer with the given close funcs, and
+// adds it as either a one-way or two-way child to this closer.
+func (c *closer) addChild(twoWay bool, f ...CloseFunc) *closer {
 	// Create a new closer and set the current closer as its parent.
 	// Also set the twoWay flag.
 	child := newCloser(f...)
 	child.parent = c
-	child.twoWay = bidirectional
+	child.twoWay = twoWay
 
 	// Add the new closer to the current closer's children.
 	c.mutex.Lock()
