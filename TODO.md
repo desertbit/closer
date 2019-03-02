@@ -1,1 +1,2 @@
 - Update README
+- MIT license?
