@@ -26,7 +26,8 @@ import (
 	"time"
 
 	"github.com/desertbit/closer"
-	"github.com/hashicorp/go-multierror"
+
+	multierror "github.com/hashicorp/go-multierror"
 	"github.com/stretchr/testify/require"
 )
 
@@ -172,10 +173,10 @@ func TestCloseFuncsLIFO(t *testing.T) {
 
 func TestCloser_OneWay(t *testing.T) {
 	// Simple test case.
-	t.Run("CloserOneWay - CloseFunc", testOneWayCloseFunc)
+	t.Run("OneWay - CloseFunc", testOneWayCloseFunc)
 
 	// Complex test case.
-	t.Run("CloserOneWay - Routines", testOneWayRoutines)
+	t.Run("OneWay - Routines", testOneWayRoutines)
 }
 
 func testOneWayCloseFunc(t *testing.T) {
@@ -194,9 +195,9 @@ func testOneWayCloseFunc(t *testing.T) {
 		test++
 		return nil
 	}
-	_ = p.CloserOneWay(f)
-	_ = p.CloserOneWay(f)
-	_ = p.CloserOneWay(f)
+	_ = p.OneWay(f)
+	_ = p.OneWay(f)
+	_ = p.OneWay(f)
 
 	// Close the parent now.
 	_ = p.Close()
@@ -215,17 +216,17 @@ func testOneWayRoutines(t *testing.T) {
 		return nil
 	})
 	// This child has a child as well.
-	c1 := p.CloserOneWay(func() error {
+	c1 := p.OneWay(func() error {
 		require.True(t, ccClosed, "a child of a child closed after its parent")
 		return nil
 	})
-	c2 := p.CloserOneWay()
+	c2 := p.OneWay()
 
-	cc1 := c1.CloserOneWay()
+	cc1 := c1.OneWay()
 
-	c1.CloserAddWaitGroup(1)
-	c2.CloserAddWaitGroup(1)
-	cc1.CloserAddWaitGroup(1)
+	c1.AddWaitGroup(1)
+	c2.AddWaitGroup(1)
+	cc1.AddWaitGroup(1)
 
 	// Start a routine for each of the children.
 	f := func(c closer.Closer) {
@@ -264,10 +265,10 @@ func testOneWayRoutines(t *testing.T) {
 
 func TestCloser_TwoWay(t *testing.T) {
 	// Simple test case.
-	t.Run("CloserTwoWay - CloseFunc", testTwoWayCloseFunc)
+	t.Run("TwoWay - CloseFunc", testTwoWayCloseFunc)
 
 	// Complex test case.
-	t.Run("CloserTwoWay - Routines", testTwoWayRoutines)
+	t.Run("TwoWay - Routines", testTwoWayRoutines)
 }
 
 func testTwoWayCloseFunc(t *testing.T) {
@@ -288,9 +289,9 @@ func testTwoWayCloseFunc(t *testing.T) {
 		test++
 		return nil
 	}
-	_ = p.CloserTwoWay(f)
-	_ = p.CloserTwoWay(f)
-	c := p.CloserTwoWay(f)
+	_ = p.TwoWay(f)
+	_ = p.TwoWay(f)
+	c := p.TwoWay(f)
 
 	// Close the child now, which should also close the parent.
 	_ = c.Close()
@@ -309,19 +310,19 @@ func testTwoWayRoutines(t *testing.T) {
 		return nil
 	})
 	// This child has a child as well.
-	c1 := p.CloserTwoWay()
-	c2 := p.CloserTwoWay()
+	c1 := p.TwoWay()
+	c2 := p.TwoWay()
 
-	cc1 := c1.CloserTwoWay(func() error {
+	cc1 := c1.TwoWay(func() error {
 		require.True(t, pClosed)
 		require.True(t, c1Closed)
 		require.True(t, c2Closed)
 		return nil
 	})
 
-	p.CloserAddWaitGroup(1)
-	c1.CloserAddWaitGroup(1)
-	c2.CloserAddWaitGroup(1)
+	p.AddWaitGroup(1)
+	c1.AddWaitGroup(1)
+	c2.AddWaitGroup(1)
 
 	// Start a routine for each of the children.
 	f := func(c closer.Closer, b *bool) {

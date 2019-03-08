@@ -50,6 +50,10 @@ type CloseFunc func() error
 
 // A Closer is a thread-safe helper for common close actions.
 type Closer interface {
+	// AddWaitGroup adds the given delta to the closer's
+	// wait group.
+	AddWaitGroup(delta int)
+
 	// Close in a thread-safe manner. implements the io.Closer interface.
 	// This method returns always the close error, regardless of how often
 	// this method is called. Close blocks until all close functions are done,
@@ -60,26 +64,12 @@ type Closer interface {
 	// CloseAndDone performs the same operation as Close(), but decrements
 	// the closer's wait group by one beforehand.
 	// Attention: Calling this without first adding to the WaitGroup by
-	// calling CloserAddWaitGroup() results in a panic.
+	// calling AddWaitGroup() results in a panic.
 	CloseAndDone() error
 
 	// CloseChan returns a channel, which is closed as
 	// soon as the closer is closed.
 	CloseChan() <-chan struct{}
-
-	// CloserAddWaitGroup adds the given delta to the closer's
-	// wait group.
-	CloserAddWaitGroup(delta int)
-
-	// CloserOneWay creates a new child closer that has a one-way relationship
-	// with the current closer. This means that the child is closed whenever
-	// the parent closes, but not vice versa.
-	CloserOneWay(f ...CloseFunc) Closer
-
-	// CloserTwoWay creates a new child closer that has a two-way relationship
-	// with the current closer. This means that the child is closed whenever
-	// the parent closes and vice versa.
-	CloserTwoWay(f ...CloseFunc) Closer
 
 	// IsClosed returns a boolean indicating
 	// if this instance was closed.
@@ -89,6 +79,16 @@ type Closer interface {
 	// Errors are appended to the Close() multi error.
 	// Close functions are called in LIFO order.
 	OnClose(f ...CloseFunc)
+
+	// OneWay creates a new child closer that has a one-way relationship
+	// with the current closer. This means that the child is closed whenever
+	// the parent closes, but not vice versa.
+	OneWay(f ...CloseFunc) Closer
+
+	// TwoWay creates a new child closer that has a two-way relationship
+	// with the current closer. This means that the child is closed whenever
+	// the parent closes and vice versa.
+	TwoWay(f ...CloseFunc) Closer
 }
 
 //######################//
@@ -130,6 +130,11 @@ type closer struct {
 // Close function are called in LIFO order.
 func New(f ...CloseFunc) Closer {
 	return newCloser(f...)
+}
+
+// Implements the Closer interface.
+func (c *closer) AddWaitGroup(delta int) {
+	c.wg.Add(delta)
 }
 
 // Implements the Closer interface.
@@ -205,23 +210,6 @@ func (c *closer) Close() error {
 }
 
 // Implements the Closer interface.
-func (c *closer) CloserAddWaitGroup(delta int) {
-	c.mutex.Lock()
-	c.wg.Add(delta)
-	c.mutex.Unlock()
-}
-
-// Implements the Closer interface.
-func (c *closer) CloserOneWay(f ...CloseFunc) Closer {
-	return c.addChild(false, f...)
-}
-
-// Implements the Closer interface.
-func (c *closer) CloserTwoWay(f ...CloseFunc) Closer {
-	return c.addChild(true, f...)
-}
-
-// Implements the Closer interface.
 func (c *closer) IsClosed() bool {
 	select {
 	case <-c.closeChan:
@@ -236,6 +224,16 @@ func (c *closer) OnClose(f ...CloseFunc) {
 	c.mutex.Lock()
 	c.funcs = append(c.funcs, f...)
 	c.mutex.Unlock()
+}
+
+// Implements the Closer interface.
+func (c *closer) OneWay(f ...CloseFunc) Closer {
+	return c.addChild(false, f...)
+}
+
+// Implements the Closer interface.
+func (c *closer) TwoWay(f ...CloseFunc) Closer {
+	return c.addChild(true, f...)
 }
 
 //###############//
