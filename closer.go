@@ -18,6 +18,16 @@
  */
 
 // Package closer offers a simple thread-safe closer.
+//
+// It allows to build up a tree of closing relationships, where you typically
+// start with a root closer that branches into different children and
+// children's children. When a parent closer spawns a child closer, the child
+// either has a one-way or two-way connection to its parent. One-way children
+// are closed when their parent closes. In addition, two-way children also close
+// their parent, if they are closed themselves.
+//
+// This allows to represent complex closing relationships and helps avoiding
+// leaking goroutines, gracefully shutting down, etc.
 package closer
 
 import (
