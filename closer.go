@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"sync"
 
-	multierror "github.com/hashicorp/go-multierror"
+	"github.com/hashicorp/go-multierror"
 )
 
 //#############//

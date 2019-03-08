@@ -25,11 +25,9 @@ import (
 	"testing"
 	"time"
 
-	multierror "github.com/hashicorp/go-multierror"
-
+	"github.com/desertbit/closer"
+	"github.com/hashicorp/go-multierror"
 	"github.com/stretchr/testify/require"
-
-	"github.com/skaldesh/closer"
 )
 
 func TestCloser_Close(t *testing.T) {
@@ -326,33 +324,18 @@ func testTwoWayRoutines(t *testing.T) {
 	c2.CloserAddWaitGroup(1)
 
 	// Start a routine for each of the children.
-	go func() {
+	f := func(c closer.Closer, b *bool) {
 		select {
-		case <-c1.CloseChan():
-			c1Closed = true
-			_ = c1.CloseAndDone()
+		case <-c.CloseChan():
+			*b = true
+			_ = c.CloseAndDone()
 		case <-time.After(time.Second):
 			t.Fatal("routine timed out")
 		}
-	}()
-	go func() {
-		select {
-		case <-c2.CloseChan():
-			c2Closed = true
-			_ = c2.CloseAndDone()
-		case <-time.After(time.Second):
-			t.Fatal("routine timed out")
-		}
-	}()
-	go func() {
-		select {
-		case <-p.CloseChan():
-			pClosed = true
-			_ = p.CloseAndDone()
-		case <-time.After(time.Second):
-			t.Fatal("routine timed out")
-		}
-	}()
+	}
+	go f(c1, &c1Closed)
+	go f(c2, &c2Closed)
+	go f(p, &pClosed)
 
 	// Close the lowest child. This should close c1, c2 and p.
 	_ = cc1.Close()
