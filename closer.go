@@ -34,7 +34,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hashicorp/go-multierror"
+	multierror "github.com/hashicorp/go-multierror"
 )
 
 //#############//
@@ -51,12 +51,16 @@ type CloseFunc func() error
 // A Closer is a thread-safe helper for common close actions.
 type Closer interface {
 	// AddWaitGroup adds the given delta to the closer's
-	// wait group.
+	// wait group. Useful to wait for routines associated
+	// with this closer to gracefully shutdown.
 	AddWaitGroup(delta int)
 
-	// Close in a thread-safe manner. implements the io.Closer interface.
+	// Close closes this closer in a thread-safe manner.
+	//
+	// Implements the io.Closer interface.
+	//
 	// This method returns always the close error, regardless of how often
-	// this method is called. Close blocks until all close functions are done,
+	// it gets called. Close blocks, until all close functions are done,
 	// no matter which goroutine called this method.
 	// Returns a hashicorp multierror.
 	Close() error
@@ -72,7 +76,7 @@ type Closer interface {
 	CloseChan() <-chan struct{}
 
 	// IsClosed returns a boolean indicating
-	// if this instance was closed.
+	// whether this instance has been closed.
 	IsClosed() bool
 
 	// Calls the close function on close.
@@ -104,19 +108,19 @@ type closer struct {
 	closeChan chan struct{}
 	// The error collected by executing the Close() func
 	// and combining all encountered errors from the close funcs.
-	closeErr  error
+	closeErr error
 
 	// Synchronises the access to the following properties.
-	mutex    sync.Mutex
+	mutex sync.Mutex
 	// The close funcs that are executed when this closer closes.
-	funcs    []CloseFunc
+	funcs []CloseFunc
 	// The parent of this closer. May be nil.
-	parent   *closer
+	parent *closer
 	// The closer children that this closer spawned.
 	children []*closer
 	// Used to wait for external dependencies of the closer
 	// before the Close() method actually returns.
-	wg       sync.WaitGroup
+	wg sync.WaitGroup
 
 	// A flag that indicates whether this closer is a two-way closer.
 	// In comparison to a standard one-way closer, which closes when
@@ -135,17 +139,6 @@ func New(f ...CloseFunc) Closer {
 // Implements the Closer interface.
 func (c *closer) AddWaitGroup(delta int) {
 	c.wg.Add(delta)
-}
-
-// Implements the Closer interface.
-func (c *closer) CloseChan() <-chan struct{} {
-	return c.closeChan
-}
-
-// Implements the Closer interface.
-func (c *closer) CloseAndDone() error {
-	c.wg.Done()
-	return c.Close()
 }
 
 // Implements the Closer interface.
@@ -207,6 +200,17 @@ func (c *closer) Close() error {
 	}
 
 	return c.closeErr
+}
+
+// Implements the Closer interface.
+func (c *closer) CloseAndDone() error {
+	c.wg.Done()
+	return c.Close()
+}
+
+// Implements the Closer interface.
+func (c *closer) CloseChan() <-chan struct{} {
+	return c.closeChan
 }
 
 // Implements the Closer interface.
