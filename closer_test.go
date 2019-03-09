@@ -21,7 +21,6 @@ package closer_test
 
 import (
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -182,22 +181,19 @@ func TestCloser_OneWay(t *testing.T) {
 func testOneWayCloseFunc(t *testing.T) {
 	t.Parallel()
 
-	test := 0
-
 	// One parent with 3 direct, one-way children.
-	p := closer.New(func() error {
-		// If the value is not 3 that means the child closers
-		// were not close before the parent.
-		require.Equal(t, 3, test, "a child closed after its parent")
+	p := closer.New()
+	c1 := p.OneWay()
+	c2 := p.OneWay()
+	c3 := p.OneWay()
+
+	p.OnClose(func() error {
+		// All children must be closed before the parent closes.
+		require.True(t, c1.IsClosed())
+		require.True(t, c2.IsClosed())
+		require.True(t, c3.IsClosed())
 		return nil
 	})
-	f := func() error {
-		test++
-		return nil
-	}
-	_ = p.OneWay(f)
-	_ = p.OneWay(f)
-	_ = p.OneWay(f)
 
 	// Close the parent now.
 	_ = p.Close()
@@ -206,57 +202,44 @@ func testOneWayCloseFunc(t *testing.T) {
 func testOneWayRoutines(t *testing.T) {
 	t.Parallel()
 
-	mx := sync.Mutex{}
-	test := 0
-	var ccClosed bool
-
 	// One parent with 2 direct, one-way children.
-	p := closer.New(func() error {
-		require.Equal(t, 2, test, "a child closed after its parent")
-		return nil
-	})
-	// This child has a child as well.
-	c1 := p.OneWay(func() error {
-		require.True(t, ccClosed, "a child of a child closed after its parent")
-		return nil
-	})
+	p := closer.New()
+	c1 := p.OneWay()
 	c2 := p.OneWay()
 
+	p.OnClose(func() error {
+		// Both children must be closed before the parent closes.
+		require.True(t, c1.IsClosed())
+		require.True(t, c2.IsClosed())
+		return nil
+	})
+
+	// The first child has a child of its own.
 	cc1 := c1.OneWay()
+
+	c1.OnClose(func() error {
+		// The child must be closed before.
+		require.True(t, cc1.IsClosed())
+		return nil
+	})
 
 	c1.AddWaitGroup(1)
 	c2.AddWaitGroup(1)
-	cc1.AddWaitGroup(1)
+	cc1.AddWaitGroup(2) // Try two routines.
 
-	// Start a routine for each of the children.
+	// Start routines for each of the children.
 	f := func(c closer.Closer) {
-		defer func() {
-			_ = c.CloseAndDone()
-		}()
-
 		select {
 		case <-c.CloseChan():
-			mx.Lock()
-			test++
-			mx.Unlock()
+			_ = c.CloseAndDone()
 		case <-time.After(time.Second):
 			t.Fatal("routine timed out")
 		}
 	}
 	go f(c1)
 	go f(c2)
-	go func() {
-		defer func() {
-			_ = cc1.CloseAndDone()
-		}()
-
-		select {
-		case <-cc1.CloseChan():
-			ccClosed = true
-		case <-time.After(time.Second):
-			t.Fatal("routine timed out")
-		}
-	}()
+	go f(cc1)
+	go f(cc1)
 
 	// Close the parent. This should close c1 and c2, before p closes.
 	// c1 should close cc1 before it closes itself.
@@ -274,49 +257,44 @@ func TestCloser_TwoWay(t *testing.T) {
 func testTwoWayCloseFunc(t *testing.T) {
 	t.Parallel()
 
-	test := 0
-	var parentClosed bool
-
 	// One parent with 3 direct, two-way children.
-	p := closer.New(func() error {
-		// If the value is not 2 that means the child closers
-		// were not closed before the parent.
-		require.Equal(t, 2, test, "a child closed after its parent")
-		parentClosed = true
+	p := closer.New()
+	c1 := p.TwoWay()
+	c2 := p.TwoWay()
+	c3 := p.TwoWay()
+
+	c3.OnClose(func() error {
+		// We close the child, so the parent and the other children must close first.
+		require.True(t, p.IsClosed())
+		require.True(t, c1.IsClosed())
+		require.True(t, c2.IsClosed())
 		return nil
 	})
-	f := func() error {
-		test++
-		return nil
-	}
-	_ = p.TwoWay(f)
-	_ = p.TwoWay(f)
-	c := p.TwoWay(f)
 
 	// Close the child now, which should also close the parent.
-	_ = c.Close()
-	require.True(t, parentClosed)
+	_ = c3.Close()
 }
 
 func testTwoWayRoutines(t *testing.T) {
 	t.Parallel()
 
-	var pClosed, c1Closed, c2Closed bool
-
 	// One parent with 2 direct, two-way children.
-	p := closer.New(func() error {
-		// c2 is only closed after its parent p.
-		require.True(t, c2Closed)
-		return nil
-	})
-	// This child has a child as well.
+	p := closer.New()
 	c1 := p.TwoWay()
 	c2 := p.TwoWay()
 
+	p.OnClose(func() error {
+		// Only c2 is closed before its parent p.
+		require.True(t, c2.IsClosed())
+		return nil
+	})
+
+	// This is a child of the first child. This closer
+	// will be closed.
 	cc1 := c1.TwoWay(func() error {
-		require.True(t, pClosed)
-		require.True(t, c1Closed)
-		require.True(t, c2Closed)
+		require.True(t, p.IsClosed())
+		require.True(t, c1.IsClosed())
+		require.True(t, c2.IsClosed())
 		return nil
 	})
 
@@ -325,18 +303,17 @@ func testTwoWayRoutines(t *testing.T) {
 	c2.AddWaitGroup(1)
 
 	// Start a routine for each of the children.
-	f := func(c closer.Closer, b *bool) {
+	f := func(c closer.Closer) {
 		select {
 		case <-c.CloseChan():
-			*b = true
 			_ = c.CloseAndDone()
 		case <-time.After(time.Second):
 			t.Fatal("routine timed out")
 		}
 	}
-	go f(c1, &c1Closed)
-	go f(c2, &c2Closed)
-	go f(p, &pClosed)
+	go f(c1)
+	go f(c2)
+	go f(p)
 
 	// Close the lowest child. This should close c1, c2 and p.
 	_ = cc1.Close()
