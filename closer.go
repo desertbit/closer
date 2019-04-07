@@ -162,8 +162,8 @@ func (c *closer) Close() error {
 	// new control flow statements like return.
 	c.mutex.Lock()
 
-	// If the closer is already closed, just return the error.
-	if c.IsClosed() {
+	// If the closer is already closing, just return the error.
+	if c.IsClosing() {
 		c.mutex.Unlock()
 		return c.closeErr
 	}
