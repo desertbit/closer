@@ -37,7 +37,7 @@ func TestCloser_Close(t *testing.T) {
 	c := closer.New()
 	require.False(t, c.IsClosed())
 	select {
-	case <-c.CloseChan():
+	case <-c.ClosedChan():
 		t.Fatal("close chan should not read error")
 	default:
 	}
@@ -50,7 +50,7 @@ func TestCloser_Close(t *testing.T) {
 		require.True(t, c.IsClosed())
 		require.NoError(t, err)
 		select {
-		case <-c.CloseChan():
+		case <-c.ClosedChan():
 		default:
 			t.Fatal("close chan should read error")
 		}
@@ -63,7 +63,7 @@ func TestCloser_Close(t *testing.T) {
 
 	require.False(t, c.IsClosed())
 	select {
-	case <-c.CloseChan():
+	case <-c.ClosedChan():
 		t.Fatal("close chan should not read error")
 	default:
 	}
@@ -76,11 +76,45 @@ func TestCloser_Close(t *testing.T) {
 		require.True(t, c.IsClosed())
 		require.Error(t, err)
 		select {
-		case <-c.CloseChan():
+		case <-c.ClosedChan():
 		default:
 			t.Fatal("close chan should read error")
 		}
 	}
+}
+
+func TestCloser_IsClosing(t *testing.T) {
+	t.Parallel()
+
+	p := closer.New()
+	p.OnClose(func() error {
+		// Check here whether the child signals that it is about to close.
+		require.True(t, p.IsClosing())
+		select {
+		case <-p.ClosingChan():
+		default:
+			t.Fatal("closer should be closing")
+		}
+		return nil
+	})
+}
+
+func TestCloser_IsClosed(t *testing.T) {
+	t.Parallel()
+
+	// One parent with a direct one-way child.
+	p := closer.New()
+	c := p.OneWay()
+	p.OnClose(func() error {
+		// Check here whether the child signals that it is completely closed.
+		require.True(t, c.IsClosed())
+		select {
+		case <-c.ClosedChan():
+		default:
+			t.Fatal("child closer should be closed")
+		}
+		return nil
+	})
 }
 
 func TestCloserError(t *testing.T) {
@@ -230,7 +264,7 @@ func testOneWayRoutines(t *testing.T) {
 	// Start routines for each of the children.
 	f := func(c closer.Closer) {
 		select {
-		case <-c.CloseChan():
+		case <-c.ClosedChan():
 			_ = c.CloseAndDone()
 		case <-time.After(time.Second):
 			t.Fatal("routine timed out")
@@ -305,7 +339,7 @@ func testTwoWayRoutines(t *testing.T) {
 	// Start a routine for each of the children.
 	f := func(c closer.Closer) {
 		select {
-		case <-c.CloseChan():
+		case <-c.ClosedChan():
 			_ = c.CloseAndDone()
 		case <-time.After(time.Second):
 			t.Fatal("routine timed out")

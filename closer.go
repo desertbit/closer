@@ -71,13 +71,21 @@ type Closer interface {
 	// calling AddWaitGroup() results in a panic.
 	CloseAndDone() error
 
-	// CloseChan returns a channel, which is closed as
-	// soon as the closer is closed.
-	CloseChan() <-chan struct{}
+	// ClosingChan returns a channel, which is closed as
+	// soon as the closer is about to close.
+	ClosingChan() <-chan struct{}
+
+	// ClosedChan returns a channel, which is closed as
+	// soon as the closer is completely closed.
+	ClosedChan() <-chan struct{}
 
 	// IsClosed returns a boolean indicating
-	// whether this instance has been closed.
+	// whether this instance has been closed completely.
 	IsClosed() bool
+
+	// IsClosing returns a boolean indicating
+	// whether this instance is about to close.
+	IsClosing() bool
 
 	// Calls the close function on close.
 	// Errors are appended to the Close() multi error.
@@ -102,10 +110,15 @@ type Closer interface {
 // The closer type is this package's implementation of the Closer interface.
 type closer struct {
 	// An unbuffered channel that expresses whether the
-	// closer has been closed already.
+	// closer is about to close.
 	// The channel itself gets closed to represent the closing
 	// of the closer, which leads to reads off of it to succeed.
-	closeChan chan struct{}
+	closingChan chan struct{}
+	// An unbuffered channel that expresses whether the
+	// closer has been completely closed.
+	// The channel itself gets closed to represent the closing
+	// of the closer, which leads to reads off of it to succeed.
+	closedChan chan struct{}
 	// The error collected by executing the Close() func
 	// and combining all encountered errors from the close funcs.
 	closeErr error
@@ -143,40 +156,29 @@ func (c *closer) AddWaitGroup(delta int) {
 
 // Implements the Closer interface.
 func (c *closer) Close() error {
+	// Mutex is not unlocked on defer! Therefore, be cautious when adding
+	// new control flow statements like return.
 	c.mutex.Lock()
-	defer c.mutex.Unlock()
 
 	// If the closer is already closed, just return the error.
 	if c.IsClosed() {
+		c.mutex.Unlock()
 		return c.closeErr
 	}
 
-	// Close the channel to signal that this closer is closed now.
-	close(c.closeChan)
+	// Close the closing channel to signal that this closer is about to close now.
+	close(c.closingChan)
 
 	// Close all children.
 	for _, child := range c.children {
-		// Do not attempt to close a child here that is already closed.
-		// If the child is already contained in the closing chain, this
-		// leads to a deadlock on the closer's mutex, since a upper Close()
-		// call of this same child might then be waiting for its Close()
-		// method and its own mutex again.
-		if !child.IsClosed() {
-			_ = child.Close()
-		}
+		_ = child.Close()
 	}
 
 	// Wait, until all dependencies of this closer have closed.
 	c.wg.Wait()
 
-	// If this is a twoWay closer, close the parent now as well,
-	// but only if it has not been closed yet! Otherwise there is a
-	// deadlock on the mutex, when the closing chain already closed the parent
-	// and it is waiting on its own Close() method to return.
-	if c.twoWay && c.parent != nil && !c.parent.IsClosed() {
-		_ = c.parent.Close()
-	}
-
+	// Execute all close funcs of this closer.
+	// Batch errors together.
 	var mErr *multierror.Error
 
 	// Call in LIFO order. Append the errors.
@@ -199,6 +201,19 @@ func (c *closer) Close() error {
 		c.closeErr = mErr
 	}
 
+	// Close the closed channel to signal that this closer is closed now.
+	close(c.closedChan)
+
+	c.mutex.Unlock()
+
+	// If this is a twoWay closer, close the parent now as well,
+	// but only if it has not been closed yet! Otherwise there is a
+	// deadlock on the mutex, when the closing chain already closed the parent
+	// and it is waiting on its own Close() method to return.
+	if c.twoWay && c.parent != nil && !c.parent.IsClosed() {
+		_ = c.parent.Close()
+	}
+
 	return c.closeErr
 }
 
@@ -209,14 +224,29 @@ func (c *closer) CloseAndDone() error {
 }
 
 // Implements the Closer interface.
-func (c *closer) CloseChan() <-chan struct{} {
-	return c.closeChan
+func (c *closer) ClosedChan() <-chan struct{} {
+	return c.closedChan
+}
+
+// Implements the Closer interface.
+func (c *closer) ClosingChan() <-chan struct{} {
+	return c.closingChan
 }
 
 // Implements the Closer interface.
 func (c *closer) IsClosed() bool {
 	select {
-	case <-c.closeChan:
+	case <-c.closedChan:
+		return true
+	default:
+		return false
+	}
+}
+
+// Implements the Closer interface.
+func (c *closer) IsClosing() bool {
+	select {
+	case <-c.closingChan:
 		return true
 	default:
 		return false
@@ -247,9 +277,10 @@ func (c *closer) TwoWay(f ...CloseFunc) Closer {
 // newCloser creates a new closer with the given close funcs.
 func newCloser(f ...CloseFunc) *closer {
 	return &closer{
-		closeChan: make(chan struct{}),
-		funcs:     f,
-		children:  make([]*closer, 0),
+		closingChan: make(chan struct{}),
+		closedChan:  make(chan struct{}),
+		funcs:       f,
+		children:    make([]*closer, 0),
 	}
 }
 
