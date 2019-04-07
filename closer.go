@@ -73,6 +73,7 @@ type Closer interface {
 
 	// ClosingChan returns a channel, which is closed as
 	// soon as the closer is about to close.
+	// Remains closed, once ClosedChan() has also been closed.
 	ClosingChan() <-chan struct{}
 
 	// ClosedChan returns a channel, which is closed as
@@ -85,6 +86,7 @@ type Closer interface {
 
 	// IsClosing returns a boolean indicating
 	// whether this instance is about to close.
+	// Also returns true, if IsClosed() returns true.
 	IsClosing() bool
 
 	// Calls the close function on close.
@@ -156,6 +158,7 @@ func (c *closer) AddWaitGroup(delta int) {
 
 // Implements the Closer interface.
 func (c *closer) Close() error {
+	fmt.Println("closing")
 	// Mutex is not unlocked on defer! Therefore, be cautious when adding
 	// new control flow statements like return.
 	c.mutex.Lock()
@@ -207,10 +210,8 @@ func (c *closer) Close() error {
 	c.mutex.Unlock()
 
 	// If this is a twoWay closer, close the parent now as well,
-	// but only if it has not been closed yet! Otherwise there is a
-	// deadlock on the mutex, when the closing chain already closed the parent
-	// and it is waiting on its own Close() method to return.
-	if c.twoWay && c.parent != nil && !c.parent.IsClosed() {
+	// but only if it not closing already!
+	if c.twoWay && c.parent != nil && !c.parent.IsClosing() {
 		_ = c.parent.Close()
 	}
 

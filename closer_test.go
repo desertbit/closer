@@ -24,9 +24,10 @@ import (
 	"testing"
 	"time"
 
+	multierror "github.com/hashicorp/go-multierror"
+
 	"github.com/desertbit/closer"
 
-	multierror "github.com/hashicorp/go-multierror"
 	"github.com/stretchr/testify/require"
 )
 
@@ -215,22 +216,29 @@ func TestCloser_OneWay(t *testing.T) {
 func testOneWayCloseFunc(t *testing.T) {
 	t.Parallel()
 
-	// One parent with 3 direct, one-way children.
+	// A closer chain with only one-way closers.
 	p := closer.New()
 	c1 := p.OneWay()
-	c2 := p.OneWay()
-	c3 := p.OneWay()
+	c2 := c1.OneWay()
 
+	// Close a child and check that the parent does not close.
+	err := c2.Close()
+	require.NoError(t, err)
+	require.False(t, c1.IsClosing())
+	require.False(t, c1.IsClosed())
+
+	// Close the parent now and check that the child closes.
 	p.OnClose(func() error {
-		// All children must be closed before the parent closes.
+		require.True(t, p.IsClosing())
+		require.False(t, p.IsClosed())
+
+		require.True(t, c1.IsClosing())
 		require.True(t, c1.IsClosed())
-		require.True(t, c2.IsClosed())
-		require.True(t, c3.IsClosed())
 		return nil
 	})
-
-	// Close the parent now.
-	_ = p.Close()
+	err = p.Close()
+	require.NoError(t, err)
+	require.True(t, p.IsClosed())
 }
 
 func testOneWayRoutines(t *testing.T) {
@@ -264,7 +272,7 @@ func testOneWayRoutines(t *testing.T) {
 	// Start routines for each of the children.
 	f := func(c closer.Closer) {
 		select {
-		case <-c.ClosedChan():
+		case <-c.ClosingChan():
 			_ = c.CloseAndDone()
 		case <-time.After(time.Second):
 			t.Fatal("routine timed out")
@@ -277,7 +285,8 @@ func testOneWayRoutines(t *testing.T) {
 
 	// Close the parent. This should close c1 and c2, before p closes.
 	// c1 should close cc1 before it closes itself.
-	_ = p.Close()
+	err := p.Close()
+	require.NoError(t, err)
 }
 
 func TestCloser_TwoWay(t *testing.T) {
@@ -291,22 +300,96 @@ func TestCloser_TwoWay(t *testing.T) {
 func testTwoWayCloseFunc(t *testing.T) {
 	t.Parallel()
 
-	// One parent with 3 direct, two-way children.
+	// A closer chain with only two-way closers.
 	p := closer.New()
 	c1 := p.TwoWay()
-	c2 := p.TwoWay()
-	c3 := p.TwoWay()
+	c2 := c1.TwoWay()
 
-	c3.OnClose(func() error {
-		// We close the child, so the parent and the other children must close first.
-		require.True(t, p.IsClosed())
+	p.OnClose(func() error {
+		require.True(t, p.IsClosing())
+		require.False(t, p.IsClosed())
+
+		require.True(t, c1.IsClosing())
 		require.True(t, c1.IsClosed())
+
+		require.True(t, c2.IsClosing())
 		require.True(t, c2.IsClosed())
 		return nil
 	})
+	c1.OnClose(func() error {
+		// We close the child, so the parent and the other children must close first.
+		require.False(t, p.IsClosing())
+		require.False(t, p.IsClosed())
 
-	// Close the child now, which should also close the parent.
-	_ = c3.Close()
+		require.True(t, c1.IsClosing())
+		require.False(t, c1.IsClosed())
+
+		require.True(t, c2.IsClosing())
+		require.True(t, c2.IsClosed())
+		return nil
+	})
+	c2.OnClose(func() error {
+		// We close the child, so the parent and the other children must close first.
+		require.False(t, p.IsClosing())
+		require.False(t, p.IsClosed())
+
+		require.False(t, c1.IsClosing())
+		require.False(t, c1.IsClosed())
+
+		require.True(t, c2.IsClosing())
+		require.False(t, c2.IsClosed())
+		return nil
+	})
+
+	// Close the lowest child now.
+	err := c2.Close()
+	require.NoError(t, err)
+
+	// Repeat the test, but this time close the parent.
+	p = closer.New()
+	c1 = p.TwoWay()
+	c2 = c1.TwoWay()
+
+	p.OnClose(func() error {
+		require.True(t, p.IsClosing())
+		require.False(t, p.IsClosed())
+
+		require.True(t, c1.IsClosing())
+		require.True(t, c1.IsClosed())
+
+		require.True(t, c2.IsClosing())
+		require.True(t, c2.IsClosed())
+		return nil
+	})
+	c1.OnClose(func() error {
+		// We close the child, so the parent and the other children must close first.
+		require.True(t, p.IsClosing())
+		require.False(t, p.IsClosed())
+
+		require.True(t, c1.IsClosing())
+		require.False(t, c1.IsClosed())
+
+		require.True(t, c2.IsClosing())
+		require.True(t, c2.IsClosed())
+		return nil
+	})
+	c2.OnClose(func() error {
+		// We close the child, so the parent and the other children must close first.
+		require.True(t, p.IsClosing())
+		require.False(t, p.IsClosed())
+
+		require.True(t, c1.IsClosing())
+		require.False(t, c1.IsClosed())
+
+		require.True(t, c2.IsClosing())
+		require.False(t, c2.IsClosed())
+		return nil
+	})
+
+	// Close the parent this time.
+	err = p.Close()
+	require.NoError(t, err)
+	require.True(t, p.IsClosed())
 }
 
 func testTwoWayRoutines(t *testing.T) {
@@ -318,7 +401,8 @@ func testTwoWayRoutines(t *testing.T) {
 	c2 := p.TwoWay()
 
 	p.OnClose(func() error {
-		// Only c2 is closed before its parent p.
+		// Both children must be closed
+		require.True(t, c1.IsClosed())
 		require.True(t, c2.IsClosed())
 		return nil
 	})
@@ -326,9 +410,16 @@ func testTwoWayRoutines(t *testing.T) {
 	// This is a child of the first child. This closer
 	// will be closed.
 	cc1 := c1.TwoWay(func() error {
-		require.True(t, p.IsClosed())
-		require.True(t, c1.IsClosed())
-		require.True(t, c2.IsClosed())
+		require.False(t, p.IsClosed())
+		require.False(t, c1.IsClosed())
+		require.False(t, c2.IsClosed())
+		return nil
+	})
+
+	c1.OnClose(func() error {
+		require.True(t, cc1.IsClosed())
+		require.False(t, p.IsClosed())
+		require.False(t, c2.IsClosed())
 		return nil
 	})
 
@@ -339,7 +430,7 @@ func testTwoWayRoutines(t *testing.T) {
 	// Start a routine for each of the children.
 	f := func(c closer.Closer) {
 		select {
-		case <-c.ClosedChan():
+		case <-c.ClosingChan():
 			_ = c.CloseAndDone()
 		case <-time.After(time.Second):
 			t.Fatal("routine timed out")
@@ -350,5 +441,6 @@ func testTwoWayRoutines(t *testing.T) {
 	go f(p)
 
 	// Close the lowest child. This should close c1, c2 and p.
-	_ = cc1.Close()
+	err := c1.Close()
+	require.NoError(t, err)
 }
