@@ -158,7 +158,6 @@ func (c *closer) AddWaitGroup(delta int) {
 
 // Implements the Closer interface.
 func (c *closer) Close() error {
-	fmt.Println("closing")
 	// Mutex is not unlocked on defer! Therefore, be cautious when adding
 	// new control flow statements like return.
 	c.mutex.Lock()
