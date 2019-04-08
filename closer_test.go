@@ -118,6 +118,23 @@ func TestCloser_IsClosed(t *testing.T) {
 	})
 }
 
+func TestCloser_Done(t *testing.T) {
+	t.Parallel()
+
+	c := closer.New()
+	c.AddWaitGroup(3)
+	c.Done()
+	c.Done()
+	c.Done()
+	go c.Close()
+
+	select {
+	case <-c.ClosedChan():
+	case <-time.After(time.Second):
+		t.Fatal("deadlock on close")
+	}
+}
+
 func TestCloserError(t *testing.T) {
 	t.Parallel()
 

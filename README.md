@@ -3,30 +3,14 @@
 [![GoDoc](https://godoc.org/github.com/desertbit/closer?status.svg)](https://godoc.org/github.com/desertbit/closer)
 [![Go Report Card](https://goreportcard.com/badge/github.com/desertbit/closer)](https://goreportcard.com/report/github.com/desertbit/closer)
 
-```go
-type Server struct {
-    closer.Closer // Embedded
-}
+This package aims to provide a simple and performance oriented mechanism to manage the graceful and reliable shutdown of an application, or parts of it.  
 
-func New() *Server {
-    return &Server {
-        Closer: closer.New(),
-    }
-}
+It can also be a handy alternative to the context package, though it does not solve the problem that common go libraries only accept context as a valid cancellation method. Therefore, you are only able to cancel "in-between" slow operations.
 
-func main() {
-    s := New()
-
-    // Do something on close...
-    go func() {
-        <-s.CloseChan
-        // ...
-    } ()
-
-    // ...
-    s.Close()
-}
-```
+### Examples
+Check out the sample program for a good overview of this package's functionality.
+#### Closing
+Let us assume you want a server that should close its connection once it gets closed. We close the connection in the `onClose()` method of the server's closer and demonstrate that it does not matter how often you call `Close()`, the connection is closed exactly once.
 
 ```go
 type Server struct {
@@ -56,3 +40,32 @@ func main() {
     s.Close()
 }
 ```
+#### OneWay
+Now we want an application that (among other things) connects as a client to a remote server. In case the connection is interrupted, the app should continue to run and not fail. But if the app itself closes, of course we want to take down the client connection as well.
+```go
+type App struct {
+    closer.Closer
+}
+
+func NewApp() *App {
+    return &App{
+        Closer: closer.new()
+    }
+}
+
+type Client struct {
+    closer.Closer
+    conn net.Conn
+}
+
+func NewClient(parent closer.Closer) *Client {
+    return &Client{
+        Closer: parent,
+    }
+}
+
+func (c *Client) connect() {
+    
+}
+```
+#### TwoWay

@@ -80,6 +80,11 @@ type Closer interface {
 	// soon as the closer is completely closed.
 	ClosedChan() <-chan struct{}
 
+	// Done decrements the closer's wait group by one.
+	// Attention: Calling this without first adding to the WaitGroup by
+	// calling AddWaitGroup() results in a panic.
+	Done()
+
 	// IsClosed returns a boolean indicating
 	// whether this instance has been closed completely.
 	IsClosed() bool
@@ -231,6 +236,11 @@ func (c *closer) ClosedChan() <-chan struct{} {
 // Implements the Closer interface.
 func (c *closer) ClosingChan() <-chan struct{} {
 	return c.closingChan
+}
+
+// Implements the Closer interface.
+func (c *closer) Done() {
+	c.wg.Done()
 }
 
 // Implements the Closer interface.
