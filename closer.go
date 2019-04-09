@@ -303,7 +303,6 @@ func newCloser(f ...CloseFunc) *closer {
 		closingChan: make(chan struct{}),
 		closedChan:  make(chan struct{}),
 		funcs:       f,
-		children:    make([]*closer, 0),
 	}
 }
 
