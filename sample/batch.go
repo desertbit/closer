@@ -35,12 +35,12 @@ import (
 
 const numberBatchRoutines = 10
 
-type Batch struct {
+type batch struct {
 	closer.Closer
 }
 
-func NewBatch(cl closer.Closer) *Batch {
-	b := &Batch{
+func newBatch(cl closer.Closer) *batch {
+	b := &batch{
 		Closer: cl,
 	}
 	// Print a message once the batch closes.
@@ -51,7 +51,7 @@ func NewBatch(cl closer.Closer) *Batch {
 	return b
 }
 
-func (b *Batch) Run() {
+func (b *batch) run() {
 	// Fire up several routines and make sure
 	b.Closer.CloserAddWait(numberBatchRoutines)
 	for i := 0; i < numberBatchRoutines; i++ {
@@ -61,7 +61,7 @@ func (b *Batch) Run() {
 	fmt.Println("batch up and running...")
 }
 
-func (b *Batch) workRoutine() {
+func (b *batch) workRoutine() {
 	// If one work routine dies, we let the others continue their work,
 	// so do not close on defer here, but still decrement the wait group.
 	defer b.CloserDone()

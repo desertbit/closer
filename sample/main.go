@@ -29,10 +29,10 @@ package main
 
 func main() {
 	// Create the main application.
-	app := NewApp()
+	app := newApp()
 
 	// Run the application.
-	app.Run()
+	app.run()
 
 	// Wait until the app closed completely.
 	<-app.ClosedChan()

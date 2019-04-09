@@ -35,30 +35,30 @@ import (
 	"github.com/desertbit/closer"
 )
 
-type App struct {
+type app struct {
 	closer.Closer
 }
 
-func NewApp() *App {
-	return &App{
+func newApp() *app {
+	return &app{
 		Closer: closer.New(),
 	}
 }
 
-func (a *App) Run() {
+func (a *app) run() {
 	// Create the batch service.
 	// The batch may fail, but we do not want it to crash our whole
 	// application, therefore, we use a OneWay closer, which closes
 	// the batch when the app closes, but not vice versa.
-	batch := NewBatch(a.CloserOneWay())
-	batch.Run()
+	batch := newBatch(a.CloserOneWay())
+	batch.run()
 
 	// Create the server.
 	// When the server fails, our application should cease to exist.
 	// Use a TwoWay closer, so that the app and server close each other
 	// when one encounters an error.
-	server := NewServer(a.CloserTwoWay())
-	server.Run()
+	server := newServer(a.CloserTwoWay())
+	server.run()
 
 	// For the sake of the example, close the server or the batch
 	// to simulate a failure and look, how the application behaves.

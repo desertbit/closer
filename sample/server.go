@@ -35,12 +35,12 @@ import (
 
 const numberListenRoutines = 5
 
-type Server struct {
+type server struct {
 	closer.Closer
 }
 
-func NewServer(cl closer.Closer) *Server {
-	s := &Server{
+func newServer(cl closer.Closer) *server {
+	s := &server{
 		Closer: cl,
 	}
 	s.OnClose(func() error {
@@ -50,7 +50,7 @@ func NewServer(cl closer.Closer) *Server {
 	return s
 }
 
-func (s *Server) Run() {
+func (s *server) run() {
 	// Fire up several routines and make sure our closer waits for each of them when closing.
 	s.Closer.CloserAddWait(numberListenRoutines)
 	for i := 0; i < numberListenRoutines; i++ {
@@ -60,7 +60,7 @@ func (s *Server) Run() {
 	fmt.Println("server up and running...")
 }
 
-func (s *Server) listenRoutine() {
+func (s *server) listenRoutine() {
 	// When a listen routine dies, this is critical for the server and it will take down
 	// the whole server with it.
 	defer s.CloseAndDone()
