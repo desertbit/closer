@@ -2,6 +2,7 @@
 
 [![GoDoc](https://godoc.org/github.com/desertbit/closer?status.svg)](https://godoc.org/github.com/desertbit/closer)
 [![Go Report Card](https://goreportcard.com/badge/github.com/desertbit/closer)](https://goreportcard.com/report/github.com/desertbit/closer)
+[![MIT license](https://img.shields.io/github/license/desertbit/closer.svg)](https://opensource.org/licenses/MIT)
 
 This package aims to provide a simple and performance oriented mechanism to manage the graceful and reliable shutdown of an application, or parts of it.  
 
