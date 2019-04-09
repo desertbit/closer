@@ -52,7 +52,7 @@ func NewServer(cl closer.Closer) *Server {
 
 func (s *Server) Run() {
 	// Fire up several routines and make sure our closer waits for each of them when closing.
-	s.Closer.AddWaitGroup(numberListenRoutines)
+	s.Closer.CloserAddWait(numberListenRoutines)
 	for i := 0; i < numberListenRoutines; i++ {
 		go s.listenRoutine()
 	}

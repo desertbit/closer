@@ -53,7 +53,7 @@ func NewBatch(cl closer.Closer) *Batch {
 
 func (b *Batch) Run() {
 	// Fire up several routines and make sure
-	b.Closer.AddWaitGroup(numberBatchRoutines)
+	b.Closer.CloserAddWait(numberBatchRoutines)
 	for i := 0; i < numberBatchRoutines; i++ {
 		go b.workRoutine()
 	}
