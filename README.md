@@ -97,4 +97,4 @@ Check out [godoc](https://godoc.org/github.com/desertbit/closer) for the documen
 ### Install
 `go get github.com/desertbit/closer`
 ### Contribution
-We love contributions, so feel free to do so! Coding and contribution guide lines will come in the future. For now, you can simply check out the TODO file for current issues, or file a new issue.
+We love contributions, so feel free to do so! Coding and contribution guide lines will come in the future. Simply file a new issue, if you encounter problems with this package or have feature requests.
