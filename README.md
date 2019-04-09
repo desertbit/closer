@@ -9,7 +9,7 @@ It can also be a handy alternative to the context package, though it does not so
 
 ### Examples
 Check out the sample program for a good overview of this package's functionality.
-#### Closing
+##### Closing
 Let us assume you want a server that should close its connection once it gets closed. We close the connection in the `onClose()` method of the server's closer and demonstrate that it does not matter how often you call `Close()`, the connection is closed exactly once.
 
 ```go
@@ -40,7 +40,7 @@ func main() {
     s.Close()
 }
 ```
-#### OneWay
+##### OneWay
 Now we want an application that (among other things) connects as a client to a remote server. In case the connection is interrupted, the app should continue to run and not fail. But if the app itself closes, of course we want to take down the client connection as well.
 ```go
 type App struct {
@@ -59,13 +59,41 @@ type Client struct {
 }
 
 func NewClient(parent closer.Closer) *Client {
-    return &Client{
+    c := &Client{
         Closer: parent,
     }
+    c.OnClose(func() error {
+        return c.conn.Close()
+    })
+    return c
 }
 
-func (c *Client) connect() {
+func main() {
+    a := NewApp()
+    // Close c, when a closes, but do not close a, when c closes.
+    c := NewClient(a.Closer.OneWay())
     
+    c.Close()
+    // a still alive.
 }
 ```
-#### TwoWay
+##### TwoWay
+Of course, there is the opposite to the OneWay closer that closes its parent as well. If we take the example from before, we can simply exchange the closer that is passed to the client.
+```go
+//...
+
+func main() {
+    a := NewApp()
+    // Close c, when a closes, and close a, when c closes.
+    c := NewClient(a.Closer.TwoWay())
+    
+    c.Close()
+    // a has been closed.
+}
+```
+### Documentation
+Check out [godoc](https://godoc.org/github.com/desertbit/closer) for the documentation.
+### Install
+`go get github.com/desertbit/closer`
+### Contribution
+We love contributions, so feel free to do so! Coding and contribution guide lines will come in the future. For now, you can simply check out the TODO file for current issues, or file a new issue.
