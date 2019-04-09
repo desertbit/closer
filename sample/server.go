@@ -39,9 +39,9 @@ type Server struct {
 	closer.Closer
 }
 
-func NewServer(parentCloser closer.Closer) *Server {
+func NewServer(cl closer.Closer) *Server {
 	s := &Server{
-		Closer: parentCloser,
+		Closer: cl,
 	}
 	s.OnClose(func() error {
 		fmt.Println("server closing")

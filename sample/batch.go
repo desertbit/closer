@@ -39,9 +39,9 @@ type Batch struct {
 	closer.Closer
 }
 
-func NewBatch(parentCloser closer.Closer) *Batch {
+func NewBatch(cl closer.Closer) *Batch {
 	b := &Batch{
-		Closer: parentCloser,
+		Closer: cl,
 	}
 	// Print a message once the batch closes.
 	b.OnClose(func() error {

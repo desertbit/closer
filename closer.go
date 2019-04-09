@@ -35,7 +35,7 @@
 // their parent, if they are closed themselves.
 //
 // A closer is also useful to ensure that certain dependencies, such as network
-// connections, are reliable taken down, once the closer closes.
+// connections, are reliably taken down, once the closer closes.
 // In addition, a closer can be concurrently closed many times, without closing
 // more than once, but still returning the errors to every caller.
 //

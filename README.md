@@ -59,9 +59,9 @@ type Client struct {
     conn net.Conn
 }
 
-func NewClient(parent closer.Closer) *Client {
+func NewClient(cl closer.Closer) *Client {
     c := &Client{
-        Closer: parent,
+        Closer: cl,
     }
     c.OnClose(func() error {
         return c.conn.Close()
