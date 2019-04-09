@@ -1,4 +1,4 @@
-# Closer - A simple thread-safe closer
+# Closer - A simple, thread-safe closer
 
 [![GoDoc](https://godoc.org/github.com/desertbit/closer?status.svg)](https://godoc.org/github.com/desertbit/closer)
 [![Go Report Card](https://goreportcard.com/badge/github.com/desertbit/closer)](https://goreportcard.com/report/github.com/desertbit/closer)
