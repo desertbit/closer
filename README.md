@@ -50,7 +50,7 @@ type App struct {
 
 func NewApp() *App {
     return &App{
-        Closer: closer.new()
+        Closer: closer.New()
     }
 }
 
@@ -72,7 +72,7 @@ func NewClient(cl closer.Closer) *Client {
 func main() {
     a := NewApp()
     // Close c, when a closes, but do not close a, when c closes.
-    c := NewClient(a.Closer.OneWay())
+    c := NewClient(a.CloserOneWay())
     
     c.Close()
     // a still alive.
@@ -86,7 +86,7 @@ Of course, there is the opposite to the OneWay closer that closes its parent as 
 func main() {
     a := NewApp()
     // Close c, when a closes, and close a, when c closes.
-    c := NewClient(a.Closer.TwoWay())
+    c := NewClient(a.CloserTwoWay())
     
     c.Close()
     // a has been closed.

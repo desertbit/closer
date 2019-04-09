@@ -50,14 +50,14 @@ func (a *App) Run() {
 	// The batch may fail, but we do not want it to crash our whole
 	// application, therefore, we use a OneWay closer, which closes
 	// the batch when the app closes, but not vice versa.
-	batch := NewBatch(a.OneWay())
+	batch := NewBatch(a.CloserOneWay())
 	batch.Run()
 
 	// Create the server.
 	// When the server fails, our application should cease to exist.
 	// Use a TwoWay closer, so that the app and server close each other
 	// when one encounters an error.
-	server := NewServer(a.TwoWay())
+	server := NewServer(a.CloserTwoWay())
 	server.Run()
 
 	// For the sake of the example, close the server or the batch

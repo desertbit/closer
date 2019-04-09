@@ -64,7 +64,7 @@ func (b *Batch) Run() {
 func (b *Batch) workRoutine() {
 	// If one work routine dies, we let the others continue their work,
 	// so do not close on defer here, but still decrement the wait group.
-	defer b.Done()
+	defer b.CloserDone()
 
 	// Normally, some work is performed here...
 	<-b.ClosingChan()

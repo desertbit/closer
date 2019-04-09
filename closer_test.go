@@ -117,7 +117,7 @@ func TestCloser_IsClosed(t *testing.T) {
 
 	// One parent with a direct one-way child.
 	p := closer.New()
-	c := p.OneWay()
+	c := p.CloserOneWay()
 	p.OnClose(func() error {
 		// Check here whether the child signals that it is completely closed.
 		require.True(t, c.IsClosed())
@@ -134,10 +134,10 @@ func TestCloser_Done(t *testing.T) {
 	t.Parallel()
 
 	c := closer.New()
-	c.AddWaitGroup(3)
-	c.Done()
-	c.Done()
-	c.Done()
+	c.CloserAddWait(3)
+	c.CloserDone()
+	c.CloserDone()
+	c.CloserDone()
 	go c.Close()
 
 	select {
@@ -247,8 +247,8 @@ func testOneWayCloseFunc(t *testing.T) {
 
 	// A closer chain with only one-way closers.
 	p := closer.New()
-	c1 := p.OneWay()
-	c2 := c1.OneWay()
+	c1 := p.CloserOneWay()
+	c2 := c1.CloserOneWay()
 
 	// Close a child and check that the parent does not close.
 	err := c2.Close()
@@ -275,8 +275,8 @@ func testOneWayRoutines(t *testing.T) {
 
 	// One parent with 2 direct, one-way children.
 	p := closer.New()
-	c1 := p.OneWay()
-	c2 := p.OneWay()
+	c1 := p.CloserOneWay()
+	c2 := p.CloserOneWay()
 
 	p.OnClose(func() error {
 		// Both children must be closed before the parent closes.
@@ -286,7 +286,7 @@ func testOneWayRoutines(t *testing.T) {
 	})
 
 	// The first child has a child of its own.
-	cc1 := c1.OneWay()
+	cc1 := c1.CloserOneWay()
 
 	c1.OnClose(func() error {
 		// The child must be closed before.
@@ -294,9 +294,9 @@ func testOneWayRoutines(t *testing.T) {
 		return nil
 	})
 
-	c1.AddWaitGroup(1)
-	c2.AddWaitGroup(1)
-	cc1.AddWaitGroup(2) // Try two routines.
+	c1.CloserAddWait(1)
+	c2.CloserAddWait(1)
+	cc1.CloserAddWait(2) // Try two routines.
 
 	// Start routines for each of the children.
 	f := func(c closer.Closer) {
@@ -331,8 +331,8 @@ func testTwoWayCloseFunc(t *testing.T) {
 
 	// A closer chain with only two-way closers.
 	p := closer.New()
-	c1 := p.TwoWay()
-	c2 := c1.TwoWay()
+	c1 := p.CloserTwoWay()
+	c2 := c1.CloserTwoWay()
 
 	p.OnClose(func() error {
 		require.True(t, p.IsClosing())
@@ -376,8 +376,8 @@ func testTwoWayCloseFunc(t *testing.T) {
 
 	// Repeat the test, but this time close the parent.
 	p = closer.New()
-	c1 = p.TwoWay()
-	c2 = c1.TwoWay()
+	c1 = p.CloserTwoWay()
+	c2 = c1.CloserTwoWay()
 
 	p.OnClose(func() error {
 		require.True(t, p.IsClosing())
@@ -426,8 +426,8 @@ func testTwoWayRoutines(t *testing.T) {
 
 	// One parent with 2 direct, two-way children.
 	p := closer.New()
-	c1 := p.TwoWay()
-	c2 := p.TwoWay()
+	c1 := p.CloserTwoWay()
+	c2 := p.CloserTwoWay()
 
 	p.OnClose(func() error {
 		// Both children must be closed
@@ -438,7 +438,7 @@ func testTwoWayRoutines(t *testing.T) {
 
 	// This is a child of the first child. This closer
 	// will be closed.
-	cc1 := c1.TwoWay(func() error {
+	cc1 := c1.CloserTwoWay(func() error {
 		require.False(t, p.IsClosed())
 		require.False(t, c1.IsClosed())
 		require.False(t, c2.IsClosed())
@@ -452,9 +452,9 @@ func testTwoWayRoutines(t *testing.T) {
 		return nil
 	})
 
-	p.AddWaitGroup(1)
-	c1.AddWaitGroup(1)
-	c2.AddWaitGroup(1)
+	p.CloserAddWait(1)
+	c1.CloserAddWait(1)
+	c2.CloserAddWait(1)
 
 	// Start a routine for each of the children.
 	f := func(c closer.Closer) {
