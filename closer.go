@@ -325,6 +325,7 @@ func (c *closer) OnClose(f ...CloseFunc) {
 	c.mx.Unlock()
 }
 
+// Implements the Closer interface.
 func (c *closer) OnClosing(f ...CloseFunc) {
 	c.mx.Lock()
 	c.closingFuncs = append(c.closingFuncs, f...)
