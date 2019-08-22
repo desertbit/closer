@@ -227,7 +227,7 @@ func (c *closer) Close() error {
 
 	// Close all children.
 	for _, child := range c.children {
-		_ = child.Close()
+		child.Close_()
 	}
 
 	// Wait, until all dependencies of this closer have closed.
@@ -246,7 +246,7 @@ func (c *closer) Close() error {
 	// If this is a twoWay closer, close the parent now as well,
 	// but only if it is not closing already!
 	if c.twoWay && c.parent != nil && !c.parent.IsClosing() {
-		_ = c.parent.Close()
+		c.parent.Close_()
 	}
 
 	return c.closeErr
@@ -353,10 +353,23 @@ func (c *closer) addChild(twoWay bool) *closer {
 	child.parent = c
 	child.twoWay = twoWay
 
-	// Add the new closer to the current closer's children.
-	c.mx.Lock()
-	c.children = append(c.children, child)
-	c.mx.Unlock()
+	if twoWay {
+		// Add the twoWay closer to the current closer's children.
+		c.mx.Lock()
+		c.children = append(c.children, child)
+		c.mx.Unlock()
+	} else {
+		// Close oneWay closer in a new routine.
+		c.CloserAddWait(1)
+		go func() {
+			defer c.CloserDone()
+			select {
+			case <-c.ClosingChan():
+			case <-child.ClosingChan():
+			}
+			child.Close_()
+		}()
+	}
 
 	return child
 }
