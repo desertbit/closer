@@ -71,13 +71,13 @@ type Closer interface {
 	// regardless of how often it gets called.
 	//
 	// The closing order looks like this:
-	// First, the closing chan is closed.
-	// Next, the OnClosing funcs are executed.
-	// Next, each of the closer's children is closed.
-	// Next, it waits for the wait group.
-	// Next, the OnClose funcs are executed.
-	// Next, the closed chan is closed.
-	// If the closer has a parent, the parent is closed now.
+	// 1: the closing chan is closed.
+	// 2: the OnClosing funcs are executed.
+	// 3: each of the closer's children is closed.
+	// 4: it waits for the wait group.
+	// 5: the OnClose funcs are executed.
+	// 6: the closed chan is closed.
+	// 7: the parent is closed, if it has one.
 	//
 	// Close blocks, until all close functions are done,
 	// no matter which goroutine called this method.
