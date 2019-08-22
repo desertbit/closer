@@ -30,7 +30,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/desertbit/closer"
+	"github.com/desertbit/closer/v3"
 )
 
 const numberBatchRoutines = 10

@@ -32,7 +32,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/desertbit/closer"
+	"github.com/desertbit/closer/v3"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/stretchr/testify/require"
 )
