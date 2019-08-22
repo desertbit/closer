@@ -222,6 +222,8 @@ func (c *closer) Close() error {
 
 	// Execute all closing funcs of this closer.
 	c.closeErr = c.execCloseFuncs(c.closingFuncs)
+	// Delete them, to free resources.
+	c.closingFuncs = nil
 
 	// Close all children.
 	for _, child := range c.children {
@@ -233,6 +235,8 @@ func (c *closer) Close() error {
 
 	// Execute all close funcs of this closer.
 	c.closeErr = c.execCloseFuncs(c.closeFuncs)
+	// Delete them, to free resources.
+	c.closeFuncs = nil
 
 	// Close the closed channel to signal that this closer is closed now.
 	close(c.closedChan)
