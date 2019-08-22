@@ -32,10 +32,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/desertbit/closer"
 	multierror "github.com/hashicorp/go-multierror"
-
-	"github.com/desertbit/closer/v3"
-
 	"github.com/stretchr/testify/require"
 )
 

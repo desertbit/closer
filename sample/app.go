@@ -32,7 +32,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/desertbit/closer/v3"
+	"github.com/desertbit/closer"
 )
 
 type app struct {
