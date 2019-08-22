@@ -79,8 +79,9 @@ type Closer interface {
 	// 6: the closed chan is closed.
 	// 7: the parent is closed, if it has one.
 	//
-	// Close blocks, until all close functions are done,
-	// no matter which goroutine called this method.
+	// Close blocks, until all steps of the closing order
+	// have been done.
+	// No matter which goroutine called this method.
 	// Returns a hashicorp multierror.
 	Close() error
 
@@ -151,7 +152,7 @@ type Closer interface {
 	// Their errors are appended to the Close() multi error.
 	// Closing functions are called in LIFO order.
 	// It is guaranteed that all closing funcs are executed before
-	// any close funcs
+	// any close funcs.
 	// See Close() for their position in the closing order.
 	OnClosing(f ...CloseFunc)
 }
