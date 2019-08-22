@@ -66,7 +66,8 @@ func TestCloser_Close(t *testing.T) {
 	}
 
 	// Test closer with non-nil errors.
-	c = closer.New(func() error {
+	c = closer.New()
+	c.OnClose(func() error {
 		return errors.New("test")
 	})
 
@@ -138,7 +139,7 @@ func TestCloser_Done(t *testing.T) {
 	c.CloserDone()
 	c.CloserDone()
 	c.CloserDone()
-	go c.Close()
+	go c.Close_()
 
 	select {
 	case <-c.ClosedChan():
@@ -150,45 +151,34 @@ func TestCloser_Done(t *testing.T) {
 func TestCloserError(t *testing.T) {
 	t.Parallel()
 
-	c := closer.New(func() error {
-		return errors.New("error")
+	c := closer.New()
+	c.OnClosing(func() error {
+		return errors.New("error closing")
 	})
-
-	err := c.Close()
-	require.IsType(t, &multierror.Error{}, err)
-	require.Error(t, err)
-	require.Len(t, err.(*multierror.Error).Errors, 1)
-	require.Equal(t, "error", err.(*multierror.Error).Errors[0].Error())
-}
-
-func TestCloserWithFunc(t *testing.T) {
-	t.Parallel()
-
-	c := closer.New(func() error {
-		return errors.New("error")
+	c.OnClose(func() error {
+		return errors.New("error closed")
 	})
-	require.False(t, c.IsClosed())
 
 	for i := 0; i < 3; i++ {
 		err := c.Close()
 		require.IsType(t, &multierror.Error{}, err)
 		require.Error(t, err)
-		require.Len(t, err.(*multierror.Error).Errors, 1)
-		require.Equal(t, "error", err.(*multierror.Error).Errors[0].Error())
+		require.Len(t, err.(*multierror.Error).Errors, 2)
+		require.Equal(t, "error closing", err.(*multierror.Error).Errors[0].Error())
+		require.Equal(t, "error closed", err.(*multierror.Error).Errors[1].Error())
 	}
 }
 
-func TestCloserWithFuncs(t *testing.T) {
+func TestCloserErrors(t *testing.T) {
 	t.Parallel()
 
-	c := closer.New(func() error {
-		return errors.New("error")
-	})
-	require.False(t, c.IsClosed())
-
+	c := closer.New()
 	for i := 0; i < 3; i++ {
+		c.OnClosing(func() error {
+			return errors.New("error closing")
+		})
 		c.OnClose(func() error {
-			return errors.New("error")
+			return errors.New("error closed")
 		})
 	}
 
@@ -196,10 +186,13 @@ func TestCloserWithFuncs(t *testing.T) {
 		err := c.Close()
 		require.Error(t, err)
 		require.IsType(t, &multierror.Error{}, err)
-		require.Len(t, err.(*multierror.Error).Errors, 4)
+		require.Len(t, err.(*multierror.Error).Errors, 6)
 
-		for i := 0; i < 4; i++ {
-			require.Equal(t, "error", err.(*multierror.Error).Errors[i].Error())
+		for i := 0; i < 3; i++ {
+			require.Equal(t, "error closing", err.(*multierror.Error).Errors[i].Error())
+		}
+		for i := 3; i < 6; i++ {
+			require.Equal(t, "error closed", err.(*multierror.Error).Errors[i].Error())
 		}
 	}
 }
@@ -209,7 +202,8 @@ func TestCloseFuncsLIFO(t *testing.T) {
 
 	orderChan := make(chan int, 4)
 
-	c := closer.New(func() error {
+	c := closer.New()
+	c.OnClose(func() error {
 		orderChan <- 0
 		return nil
 	})
@@ -438,7 +432,8 @@ func testTwoWayRoutines(t *testing.T) {
 
 	// This is a child of the first child. This closer
 	// will be closed.
-	cc1 := c1.CloserTwoWay(func() error {
+	cc1 := c1.CloserTwoWay()
+	cc1.OnClose(func() error {
 		require.False(t, p.IsClosed())
 		require.False(t, c1.IsClosed())
 		require.False(t, c2.IsClosed())
@@ -460,7 +455,7 @@ func testTwoWayRoutines(t *testing.T) {
 	f := func(c closer.Closer) {
 		select {
 		case <-c.ClosingChan():
-			_ = c.CloseAndDone()
+			c.CloseAndDone_()
 		case <-time.After(time.Second):
 			t.Fatal("routine timed out")
 		}
