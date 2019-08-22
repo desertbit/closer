@@ -30,7 +30,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/desertbit/closer/v3"
+	"github.com/desertbit/closer"
 )
 
 const numberListenRoutines = 5
