@@ -1,4 +1,4 @@
-module github.com/desertbit/closer
+module github.com/desertbit/closer/v3
 
 go 1.12
 
