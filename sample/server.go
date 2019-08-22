@@ -63,7 +63,7 @@ func (s *server) run() {
 func (s *server) listenRoutine() {
 	// When a listen routine dies, this is critical for the server and it will take down
 	// the whole server with it.
-	defer s.CloseAndDone()
+	defer s.CloseAndDone_()
 
 	// Normally, some work is performed here...
 	<-s.ClosingChan()
