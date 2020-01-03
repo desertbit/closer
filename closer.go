@@ -254,9 +254,6 @@ func (c *closer) Close() error {
 			c.parent.removeChild(c)
 		}
 	}
-	if c.twoWay && c.parent != nil && !c.parent.IsClosing() {
-		c.parent.Close_()
-	}
 
 	return c.closeErr
 }
@@ -362,12 +359,10 @@ func (c *closer) addChild(twoWay bool) *closer {
 	child.parent = c
 	child.twoWay = twoWay
 
-	if twoWay {
-		// Add the twoWay closer to the current closer's children.
-		c.mx.Lock()
-		c.children = append(c.children, child)
-		c.mx.Unlock()
-	}
+	// Add the closer to the current closer's children.
+	c.mx.Lock()
+	c.children = append(c.children, child)
+	c.mx.Unlock()
 
 	return child
 }
