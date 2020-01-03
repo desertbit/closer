@@ -243,8 +243,17 @@ func (c *closer) Close() error {
 
 	c.mx.Unlock()
 
-	// If this is a twoWay closer, close the parent now as well,
-	// but only if it is not closing already!
+	// Close the parent now as well, if this is a two way closer.
+	// Otherwise, the closer must remove its reference from its parent's children
+	// to prevent a leak.
+	// Only perform these actions, if the parent is not closing already!
+	if c.parent != nil && !c.parent.IsClosing() {
+		if c.twoWay {
+			c.parent.Close_()
+		} else {
+			c.parent.removeChild(c)
+		}
+	}
 	if c.twoWay && c.parent != nil && !c.parent.IsClosing() {
 		c.parent.Close_()
 	}
@@ -358,20 +367,29 @@ func (c *closer) addChild(twoWay bool) *closer {
 		c.mx.Lock()
 		c.children = append(c.children, child)
 		c.mx.Unlock()
-	} else {
-		// Close oneWay closer in a new routine.
-		c.CloserAddWait(1)
-		go func() {
-			defer c.CloserDone()
-			select {
-			case <-c.ClosingChan():
-			case <-child.ClosingChan():
-			}
-			child.Close_()
-		}()
 	}
 
 	return child
+}
+
+func (c *closer) removeChild(child *closer) {
+	index := -1
+
+	c.mx.Lock()
+	for i, cc := range c.children {
+		if cc == child {
+			index = i
+			break
+		}
+	}
+
+	if index != -1 {
+		last := len(c.children) - 1
+		c.children[index] = c.children[last]
+		c.children[last] = nil
+		c.children = c.children[:last]
+	}
+	c.mx.Unlock()
 }
 
 // execCloseFuncs executes the given close funcs and appends them
