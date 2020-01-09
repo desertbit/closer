@@ -199,8 +199,6 @@ type closer struct {
 }
 
 // New creates a new closer.
-// Optional pass functions which are called only once during close.
-// Close function are called in LIFO order.
 func New() Closer {
 	return newCloser()
 }
@@ -367,6 +365,8 @@ func (c *closer) addChild(twoWay bool) *closer {
 	return child
 }
 
+// removeChild removes the given child from this closer's children.
+// If the child can not be found, this is a no-op.
 func (c *closer) removeChild(child *closer) {
 	index := -1
 
