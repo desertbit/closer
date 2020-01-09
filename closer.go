@@ -371,6 +371,8 @@ func (c *closer) removeChild(child *closer) {
 	index := -1
 
 	c.mx.Lock()
+	defer c.mx.Unlock()
+
 	for i, cc := range c.children {
 		if cc == child {
 			index = i
@@ -384,7 +386,6 @@ func (c *closer) removeChild(child *closer) {
 		c.children[last] = nil
 		c.children = c.children[:last]
 	}
-	c.mx.Unlock()
 }
 
 // execCloseFuncs executes the given close funcs and appends them
