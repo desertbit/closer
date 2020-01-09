@@ -385,11 +385,6 @@ func (c *closer) removeChild(child *closer) {
 		c.children[index] = c.children[last]
 		c.children[last] = nil
 		c.children = c.children[:last]
-
-		// Reduce size, if too big.
-		if cap(c.children) > len(c.children)*4 {
-			c.children = append([]*closer(nil), c.children[:len(c.children)*2]...)
-		}
 	}
 }
 
