@@ -44,6 +44,7 @@
 package closer
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -132,6 +133,9 @@ type Closer interface {
 	// Remains closed, once ClosedChan() has also been closed.
 	// See Close() for the position in the closing order.
 	ClosingChan() <-chan struct{}
+
+	// Context returns a context.Context, whose
+	Context() (context.Context, context.CancelFunc)
 
 	// IsClosed returns a boolean indicating
 	// whether this instance has been closed completely.
@@ -296,6 +300,21 @@ func (c *closer) CloserTwoWay() Closer {
 // Implements the Closer interface.
 func (c *closer) ClosingChan() <-chan struct{} {
 	return c.closingChan
+}
+
+// Implements the Closer interface.
+func (c *closer) Context() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		select {
+		case <-c.ClosingChan():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	return ctx, cancel
 }
 
 // Implements the Closer interface.
