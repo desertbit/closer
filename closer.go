@@ -161,6 +161,10 @@ type Closer interface {
 //### Implementation ###//
 //######################//
 
+const (
+	minChildrenCap = 100
+)
+
 // The closer type is this package's implementation of the Closer interface.
 type closer struct {
 	// An unbuffered channel that expresses whether the
@@ -196,6 +200,10 @@ type closer struct {
 	// its parent closes, a two-way closer closes also its parent, when
 	// it itself gets closed.
 	twoWay bool
+
+	// The index of this closer in its parent's children slice.
+	// Needed to efficiently remove the closer from its parent.
+	parentIndex int
 }
 
 // New creates a new closer.
@@ -359,6 +367,7 @@ func (c *closer) addChild(twoWay bool) *closer {
 
 	// Add the closer to the current closer's children.
 	c.mx.Lock()
+	child.parentIndex = len(c.children)
 	c.children = append(c.children, child)
 	c.mx.Unlock()
 
@@ -368,23 +377,24 @@ func (c *closer) addChild(twoWay bool) *closer {
 // removeChild removes the given child from this closer's children.
 // If the child can not be found, this is a no-op.
 func (c *closer) removeChild(child *closer) {
-	index := -1
-
 	c.mx.Lock()
 	defer c.mx.Unlock()
 
-	for i, cc := range c.children {
-		if cc == child {
-			index = i
-			break
-		}
-	}
+	last := len(c.children) - 1
+	c.children[last].parentIndex = child.parentIndex
+	c.children[child.parentIndex] = c.children[last]
+	c.children[last] = nil
+	c.children = c.children[:last]
 
-	if index != -1 {
-		last := len(c.children) - 1
-		c.children[index] = c.children[last]
-		c.children[last] = nil
-		c.children = c.children[:last]
+	// Prevent endless growth.
+	// If the capacity is bigger than our min value and
+	// four times larger than the length, shrink it by half.
+	cp := cap(c.children)
+	le := len(c.children)
+	if cp > minChildrenCap && cp > 4*le {
+		children := make([]*closer, le, cp/2)
+		copy(children, c.children)
+		c.children = children
 	}
 }
 
