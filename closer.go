@@ -134,7 +134,10 @@ type Closer interface {
 	// See Close() for the position in the closing order.
 	ClosingChan() <-chan struct{}
 
-	// Context returns a context.Context, whose
+	// Context returns a context.Context, which is cancelled
+	// as soon as the closer is closing.
+	// The returned cancel func should be called as soon as the
+	// context is no longer needed, to free resources.
 	Context() (context.Context, context.CancelFunc)
 
 	// IsClosed returns a boolean indicating
