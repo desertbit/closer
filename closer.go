@@ -392,7 +392,7 @@ func (c *closer) removeChild(child *closer) {
 	cp := cap(c.children)
 	le := len(c.children)
 	if cp > minChildrenCap && cp > 4*le {
-		children := make([]*closer, le, cp/2)
+		children := make([]*closer, le, le*2)
 		copy(children, c.children)
 		c.children = children
 	}
