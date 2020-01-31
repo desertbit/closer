@@ -311,7 +311,7 @@ func (c *closer) Context() (context.Context, context.CancelFunc) {
 
 	go func() {
 		select {
-		case <-c.ClosingChan():
+		case <-c.closingChan:
 			cancel()
 		case <-ctx.Done():
 		}
