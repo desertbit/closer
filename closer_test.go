@@ -243,10 +243,10 @@ func TestCloser_Context(t *testing.T) {
 
 func TestCloser_OneWay(t *testing.T) {
 	// Simple test case.
-	t.Run("OneWay - CloseFunc", testOneWayCloseFunc)
+	t.Run("CloseFunc", testOneWayCloseFunc)
 
 	// Complex test case.
-	t.Run("OneWay - Routines", testOneWayRoutines)
+	t.Run("Routines", testOneWayRoutines)
 }
 
 func testOneWayCloseFunc(t *testing.T) {
@@ -263,7 +263,15 @@ func testOneWayCloseFunc(t *testing.T) {
 	require.False(t, c1.IsClosing())
 	require.False(t, c1.IsClosed())
 
-	// Close the parent now and check that the child closes.
+	p.OnClosing(func() error {
+		require.True(t, p.IsClosing())
+		require.False(t, p.IsClosed())
+
+		require.False(t, c1.IsClosing())
+		require.False(t, c1.IsClosed())
+		return nil
+	})
+
 	p.OnClose(func() error {
 		require.True(t, p.IsClosing())
 		require.False(t, p.IsClosed())
@@ -272,6 +280,8 @@ func testOneWayCloseFunc(t *testing.T) {
 		require.True(t, c1.IsClosed())
 		return nil
 	})
+
+	// Close the parent now.
 	err = p.Close()
 	require.NoError(t, err)
 	require.True(t, p.IsClosed())
@@ -327,10 +337,10 @@ func testOneWayRoutines(t *testing.T) {
 
 func TestCloser_TwoWay(t *testing.T) {
 	// Simple test case.
-	t.Run("TwoWay - CloseFunc", testTwoWayCloseFunc)
+	t.Run("CloseFunc", testTwoWayCloseFunc)
 
 	// Complex test case.
-	t.Run("TwoWay - Routines", testTwoWayRoutines)
+	t.Run("Routines", testTwoWayRoutines)
 }
 
 func testTwoWayCloseFunc(t *testing.T) {
