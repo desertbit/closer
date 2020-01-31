@@ -226,6 +226,21 @@ func TestCloseFuncsLIFO(t *testing.T) {
 	}
 }
 
+func TestCloser_Context(t *testing.T) {
+	t.Parallel()
+
+	// Test closing the closer.
+	c := closer.New()
+	ctx, _ := c.Context()
+	c.Close_()
+	time.Sleep(time.Millisecond)
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("deadlock on context")
+	}
+}
+
 func TestCloser_OneWay(t *testing.T) {
 	// Simple test case.
 	t.Run("OneWay - CloseFunc", testOneWayCloseFunc)
