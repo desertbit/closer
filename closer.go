@@ -64,6 +64,8 @@ type CloseFunc func() error
 
 // A Closer is a thread-safe helper for common close actions.
 type Closer interface {
+	DependencyCloser
+
 	// Close closes this closer in a thread-safe manner.
 	//
 	// Implements the io.Closer interface.
@@ -90,32 +92,6 @@ type Closer interface {
 	// where the error is not of interest.
 	Close_()
 
-	// CloseAndDone performs the same operation as Close(), but decrements
-	// the closer's wait group by one beforehand.
-	// Attention: Calling this without first adding to the WaitGroup by
-	// calling AddWaitGroup() results in a panic.
-	CloseAndDone() error
-
-	// CloseAndDone_ is a convenience version of CloseAndDone(), for use in
-	// defer where the error is not of interest.
-	CloseAndDone_()
-
-	// ClosedChan returns a channel, which is closed as
-	// soon as the closer is completely closed.
-	// See Close() for the position in the closing order.
-	ClosedChan() <-chan struct{}
-
-	// CloserAddWait adds the given delta to the closer's
-	// wait group. Useful to wait for routines associated
-	// with this closer to gracefully shutdown.
-	// See Close() for the position in the closing order.
-	CloserAddWait(delta int)
-
-	// CloserDone decrements the closer's wait group by one.
-	// Attention: Calling this without first adding to the WaitGroup by
-	// calling AddWaitGroup() results in a panic.
-	CloserDone()
-
 	// CloserOneWay creates a new child closer that has a one-way relationship
 	// with the current closer. This means that the child is closed whenever
 	// the parent closes, but not vice versa.
@@ -127,27 +103,6 @@ type Closer interface {
 	// the parent closes and vice versa.
 	// See Close() for the position in the closing order.
 	CloserTwoWay() Closer
-
-	// ClosingChan returns a channel, which is closed as
-	// soon as the closer is about to close.
-	// Remains closed, once ClosedChan() has also been closed.
-	// See Close() for the position in the closing order.
-	ClosingChan() <-chan struct{}
-
-	// Context returns a context.Context, which is cancelled
-	// as soon as the closer is closing.
-	// The returned cancel func should be called as soon as the
-	// context is no longer needed, to free resources.
-	Context() (context.Context, context.CancelFunc)
-
-	// IsClosed returns a boolean indicating
-	// whether this instance has been closed completely.
-	IsClosed() bool
-
-	// IsClosing returns a boolean indicating
-	// whether this instance is about to close.
-	// Also returns true, if IsClosed() returns true.
-	IsClosing() bool
 
 	// OnClose adds the given CloseFuncs to the closer.
 	// Their errors are appended to the Close() multi error.
@@ -162,6 +117,63 @@ type Closer interface {
 	// any close funcs.
 	// See Close() for their position in the closing order.
 	OnClosing(f ...CloseFunc)
+}
+
+type DependencyCloser interface {
+	Dependency
+
+	// CloseAndDone performs the same operation as Close(), but decrements
+	// the closer's wait group by one beforehand.
+	// Attention: Calling this without first adding to the WaitGroup by
+	// calling AddWaitGroup() results in a panic.
+	CloseAndDone() error
+
+	// CloseAndDone_ is a convenience version of CloseAndDone(), for use in
+	// defer where the error is not of interest.
+	CloseAndDone_()
+}
+
+type Dependency interface {
+	Listener
+
+	// CloserAddWait adds the given delta to the closer's
+	// wait group. Useful to wait for routines associated
+	// with this closer to gracefully shutdown.
+	// See Close() for the position in the closing order.
+	CloserAddWait(delta int)
+
+	// CloserDone decrements the closer's wait group by one.
+	// Attention: Calling this without first adding to the WaitGroup by
+	// calling AddWaitGroup() results in a panic.
+	CloserDone()
+}
+
+type Listener interface {
+	// Context returns a context.Context, which is cancelled
+	// as soon as the closer is closing.
+	// The returned cancel func should be called as soon as the
+	// context is no longer needed, to free resources.
+	Context() (context.Context, context.CancelFunc)
+
+	// ClosedChan returns a channel, which is closed as
+	// soon as the closer is completely closed.
+	// See Close() for the position in the closing order.
+	ClosedChan() <-chan struct{}
+
+	// ClosingChan returns a channel, which is closed as
+	// soon as the closer is about to close.
+	// Remains closed, once ClosedChan() has also been closed.
+	// See Close() for the position in the closing order.
+	ClosingChan() <-chan struct{}
+
+	// IsClosed returns a boolean indicating
+	// whether this instance has been closed completely.
+	IsClosed() bool
+
+	// IsClosing returns a boolean indicating
+	// whether this instance is about to close.
+	// Also returns true, if IsClosed() returns true.
+	IsClosing() bool
 }
 
 //######################//
@@ -198,6 +210,7 @@ type closer struct {
 	parent *closer
 	// The closer children that this closer spawned.
 	children []*closer
+
 	// Used to wait for external dependencies of the closer
 	// before the Close() method actually returns.
 	wg sync.WaitGroup
