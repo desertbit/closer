@@ -341,6 +341,9 @@ func TestCloser_TwoWay(t *testing.T) {
 
 	// Complex test case.
 	t.Run("Routines", testTwoWayRoutines)
+
+	// Test for asynchronous child close.
+	t.Run("ParentWaitGroup", testTwoWayParentWaitGroup)
 }
 
 func testTwoWayCloseFunc(t *testing.T) {
@@ -390,6 +393,13 @@ func testTwoWayCloseFunc(t *testing.T) {
 	// Close the lowest child now.
 	err := c2.Close()
 	require.NoError(t, err)
+
+	// Wait for the parent to close. This happens in a new goroutine.
+	select {
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out")
+	case <-p.ClosedChan():
+	}
 
 	// Repeat the test, but this time close the parent.
 	p = closer.New()
@@ -490,4 +500,31 @@ func testTwoWayRoutines(t *testing.T) {
 	// Close the lowest child. This should close c1, c2 and p.
 	err := c1.Close()
 	require.NoError(t, err)
+
+	// Wait for the parent to close. This happens in a new goroutine.
+	select {
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out")
+	case <-p.ClosedChan():
+	}
+}
+
+func testTwoWayParentWaitGroup(t *testing.T) {
+	t.Parallel()
+
+	p := closer.New()
+	c := p.CloserTwoWay()
+
+	go func() {
+		p.CloserAddWait(1)
+		defer p.CloseAndDone_()
+
+		c.Close_()
+	}()
+
+	select {
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out")
+	case <-p.ClosedChan():
+	}
 }

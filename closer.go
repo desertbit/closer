@@ -266,7 +266,9 @@ func (c *closer) Close() error {
 	// Only perform these actions, if the parent is not closing already!
 	if c.parent != nil && !c.parent.IsClosing() {
 		if c.twoWay {
-			c.parent.Close_()
+			// Do not wait for the parent close. This may cause a dead-lock.
+			// Traversing up the closer tree does not require that the children wait for their parents.
+			go c.parent.Close_()
 		} else {
 			c.parent.removeChild(c)
 		}
