@@ -94,6 +94,9 @@ type Closer interface {
 	// where the error is not of interest.
 	Close_()
 
+	// CloseWithErr closes the closer and appends the given error to its multierror.
+	CloseWithErr(err error)
+
 	// CloseAndDone performs the same operation as Close(), but decrements
 	// the closer's wait group by one beforehand.
 	// Attention: Calling this without first adding to the WaitGroup by
@@ -224,62 +227,17 @@ func New() Closer {
 
 // Implements the Closer interface.
 func (c *closer) Close() error {
-	// Mutex is not unlocked on defer! Therefore, be cautious when adding
-	// new control flow statements like return.
-	c.mx.Lock()
-
-	// If the closer is already closing, just return the error.
-	if c.IsClosing() {
-		c.mx.Unlock()
-		return c.closeErr
-	}
-
-	// Close the closing channel to signal that this closer is about to close now.
-	close(c.closingChan)
-
-	// Execute all closing funcs of this closer.
-	c.closeErr = c.execCloseFuncs(c.closingFuncs)
-	// Delete them, to free resources.
-	c.closingFuncs = nil
-
-	// Close all children.
-	for _, child := range c.children {
-		child.Close_()
-	}
-
-	// Wait, until all dependencies of this closer have closed.
-	c.wg.Wait()
-
-	// Execute all close funcs of this closer.
-	c.closeErr = c.execCloseFuncs(c.closeFuncs)
-	// Delete them, to free resources.
-	c.closeFuncs = nil
-
-	// Close the closed channel to signal that this closer is closed now.
-	close(c.closedChan)
-
-	c.mx.Unlock()
-
-	// Close the parent now as well, if this is a two way closer.
-	// Otherwise, the closer must remove its reference from its parent's children
-	// to prevent a leak.
-	// Only perform these actions, if the parent is not closing already!
-	if c.parent != nil && !c.parent.IsClosing() {
-		if c.twoWay {
-			// Do not wait for the parent close. This may cause a dead-lock.
-			// Traversing up the closer tree does not require that the children wait for their parents.
-			go c.parent.Close_()
-		} else {
-			c.parent.removeChild(c)
-		}
-	}
-
-	return c.closeErr
+	return c.close(nil)
 }
 
 // Implements the Closer interface.
 func (c *closer) Close_() {
 	_ = c.Close()
+}
+
+// Implements the Closer interface.
+func (c *closer) CloseWithErr(err error) {
+	c.close(err)
 }
 
 // Implements the Closer interface.
@@ -382,6 +340,64 @@ func newCloser() *closer {
 		closingChan: make(chan struct{}),
 		closedChan:  make(chan struct{}),
 	}
+}
+
+func (c *closer) close(err error) error {
+	c.mx.Lock()
+	defer c.mx.Unlock()
+
+	// Append the error, if one is given.
+	if err != nil {
+		c.closeErr = multierror.Append(c.closeErr, err)
+	}
+
+	// If the closer is already closing, just return the error.
+	if c.IsClosing() {
+		return c.closeErr
+	}
+
+	// Close the closing channel to signal that this closer is about to close now.
+	close(c.closingChan)
+
+	// Execute all closing funcs of this closer.
+	c.closeErr = c.execCloseFuncs(c.closingFuncs)
+	// Delete them, to free resources.
+	c.closingFuncs = nil
+
+	// Close all children.
+	for _, child := range c.children {
+		cErr := child.Close()
+		if cErr != nil {
+			c.closeErr = multierror.Append(c.closeErr, cErr)
+		}
+	}
+
+	// Wait, until all dependencies of this closer have closed.
+	c.wg.Wait()
+
+	// Execute all close funcs of this closer.
+	c.closeErr = c.execCloseFuncs(c.closeFuncs)
+	// Delete them, to free resources.
+	c.closeFuncs = nil
+
+	// Close the closed channel to signal that this closer is closed now.
+	close(c.closedChan)
+
+	// Close the parent now as well, if this is a two way closer.
+	// Otherwise, the closer must remove its reference from its parent's children
+	// to prevent a leak.
+	// Only perform these actions, if the parent is not closing already!
+	if c.parent != nil && !c.parent.IsClosing() {
+		if c.twoWay {
+			// Do not wait for the parent close. This may cause a dead-lock.
+			// Traversing up the closer tree does not require that the children wait for their parents.
+			go c.parent.Close_()
+		} else {
+			c.parent.removeChild(c)
+		}
+	}
+
+	return c.closeErr
 }
 
 // addChild creates a new closer and adds it as either
