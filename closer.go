@@ -97,10 +97,16 @@ type Closer interface {
 	// CloseWithErr closes the closer and appends the given error to its joined error.
 	CloseWithErr(err error)
 
+	// CloseWithErrAndDone performs the same operation as CloseWithErr(), but decrements
+	// the closer's wait group by one beforehand.
+	// Attention: Calling this without first adding to the WaitGroup by
+	// calling CloserAddWait results in a panic.
+	CloseWithErrAndDone(err error)
+
 	// CloseAndDone performs the same operation as Close(), but decrements
 	// the closer's wait group by one beforehand.
 	// Attention: Calling this without first adding to the WaitGroup by
-	// calling AddWaitGroup() results in a panic.
+	// calling CloserAddWait() results in a panic.
 	CloseAndDone() error
 
 	// CloseAndDone_ is a convenience version of CloseAndDone(), for use in
@@ -120,7 +126,7 @@ type Closer interface {
 
 	// CloserDone decrements the closer's wait group by one.
 	// Attention: Calling this without first adding to the WaitGroup by
-	// calling AddWaitGroup() results in a panic.
+	// calling CloserAddWait() results in a panic.
 	CloserDone()
 
 	// CloserOneWay creates a new child closer that has a one-way relationship
@@ -238,6 +244,12 @@ func (c *closer) Close_() {
 // Implements the Closer interface.
 func (c *closer) CloseWithErr(err error) {
 	_ = c.close(err)
+}
+
+// Implements the Closer interface.
+func (c *closer) CloseWithErrAndDone(err error) {
+	c.wg.Done()
+	c.CloseWithErr(err)
 }
 
 // Implements the Closer interface.
