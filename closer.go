@@ -237,7 +237,7 @@ func (c *closer) Close_() {
 
 // Implements the Closer interface.
 func (c *closer) CloseWithErr(err error) {
-	c.close(err)
+	_ = c.close(err)
 }
 
 // Implements the Closer interface.
@@ -346,14 +346,14 @@ func (c *closer) close(err error) error {
 	c.mx.Lock()
 	defer c.mx.Unlock()
 
-	// Append the error, if one is given.
-	if err != nil {
-		c.closeErr = multierror.Append(c.closeErr, err)
-	}
-
 	// If the closer is already closing, just return the error.
 	if c.IsClosing() {
 		return c.closeErr
+	}
+
+	// Append the error, if one is given.
+	if err != nil {
+		c.closeErr = multierror.Append(c.closeErr, err)
 	}
 
 	// Close the closing channel to signal that this closer is about to close now.
