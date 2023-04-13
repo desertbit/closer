@@ -46,10 +46,7 @@ package closer
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
-
-	multierror "github.com/hashicorp/go-multierror"
 )
 
 // ErrClosed is a generic error that indicates a resource has been closed.
@@ -84,17 +81,20 @@ type Closer interface {
 	// 6: the closed chan is closed.
 	// 7: the parent is closed, if it has one.
 	//
-	// Close blocks, until all steps of the closing order
-	// have been done.
-	// No matter which goroutine called this method.
-	// Returns a hashicorp multierror.
+	// Close blocks, until step 6 of the closing order
+	// has been finished. A potential parent gets
+	// closed concurrently in a new goroutine.
+	//
+	// The returned error contains the joined errors of all closers that were part of
+	// the blocking closing order of this closer.
+	// This means that two-way closers do not report their parents' errors.
 	Close() error
 
 	// Close_ is a convenience version of Close(), for use in defer
 	// where the error is not of interest.
 	Close_()
 
-	// CloseWithErr closes the closer and appends the given error to its multierror.
+	// CloseWithErr closes the closer and appends the given error to its joined error.
 	CloseWithErr(err error)
 
 	// CloseAndDone performs the same operation as Close(), but decrements
@@ -157,13 +157,13 @@ type Closer interface {
 	IsClosing() bool
 
 	// OnClose adds the given CloseFuncs to the closer.
-	// Their errors are appended to the Close() multi error.
+	// Their errors are joined with the closer's other errors.
 	// Close functions are called in LIFO order.
 	// See Close() for their position in the closing order.
 	OnClose(f ...CloseFunc)
 
 	// OnClosing adds the given CloseFuncs to the closer.
-	// Their errors are appended to the Close() multi error.
+	// Their errors are joined with the closer's other errors.
 	// Closing functions are called in LIFO order.
 	// It is guaranteed that all closing funcs are executed before
 	// any close funcs.
@@ -192,7 +192,7 @@ type closer struct {
 	// of the closer, which leads to reads off of it to succeed.
 	closedChan chan struct{}
 	// The error collected by executing the Close() func
-	// and combining all encountered errors from the close funcs.
+	// and combining all encountered errors from the close funcs as joined error.
 	closeErr error
 
 	// Synchronises the access to the following properties.
@@ -351,32 +351,33 @@ func (c *closer) close(err error) error {
 		return c.closeErr
 	}
 
-	// Append the error, if one is given.
-	if err != nil {
-		c.closeErr = multierror.Append(c.closeErr, err)
-	}
+	// Join the error.
+	c.closeErr = errors.Join(c.closeErr, err)
 
 	// Close the closing channel to signal that this closer is about to close now.
 	close(c.closingChan)
 
-	// Execute all closing funcs of this closer.
-	c.closeErr = c.execCloseFuncs(c.closingFuncs)
+	// Execute all closing funcs of this closer in LIFO order.
+	for i := len(c.closingFuncs) - 1; i >= 0; i-- {
+		c.closeErr = errors.Join(c.closeErr, c.closingFuncs[i]())
+	}
+
 	// Delete them, to free resources.
 	c.closingFuncs = nil
 
-	// Close all children.
+	// Close all children and join their errors.
 	for _, child := range c.children {
-		cErr := child.Close()
-		if cErr != nil {
-			c.closeErr = multierror.Append(c.closeErr, cErr)
-		}
+		c.closeErr = errors.Join(c.closeErr, child.Close())
 	}
 
 	// Wait, until all dependencies of this closer have closed.
 	c.wg.Wait()
 
-	// Execute all close funcs of this closer.
-	c.closeErr = c.execCloseFuncs(c.closeFuncs)
+	// Execute all close funcs of this closer in LIFO order.
+	for i := len(c.closeFuncs) - 1; i >= 0; i-- {
+		c.closeErr = errors.Join(c.closeErr, c.closeFuncs[i]())
+	}
+
 	// Delete them, to free resources.
 	c.closeFuncs = nil
 
@@ -440,40 +441,4 @@ func (c *closer) removeChild(child *closer) {
 		copy(children, c.children)
 		c.children = children
 	}
-}
-
-// execCloseFuncs executes the given close funcs and appends them
-// to the closer's closeErr, which is a hashicorp.multiError.
-// The error is then returned.
-func (c *closer) execCloseFuncs(f []CloseFunc) error {
-	// Batch errors together.
-	var mErr *multierror.Error
-
-	// If an error is already set, append the next errors to it.
-	if c.closeErr != nil {
-		mErr = multierror.Append(mErr, c.closeErr)
-	}
-
-	// Call in LIFO order. Append the errors.
-	for i := len(f) - 1; i >= 0; i-- {
-		if err := f[i](); err != nil {
-			mErr = multierror.Append(mErr, err)
-		}
-	}
-
-	// If no error is available, return.
-	if mErr == nil {
-		return nil
-	}
-
-	// The default multiCloser error formatting uses too much space.
-	mErr.ErrorFormat = func(errors []error) string {
-		str := fmt.Sprintf("%v close errors occurred:", len(errors))
-		for _, err := range errors {
-			str += "\n- " + err.Error()
-		}
-		return str
-	}
-
-	return mErr
 }
