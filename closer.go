@@ -176,9 +176,9 @@ type Closer interface {
 	// See Close() for their position in the closing order.
 	OnClosing(f ...CloseFunc)
 
-	// Error returns the joined error of this closer once it has fully closed.
+	// CloserError returns the joined error of this closer once it has fully closed.
 	// If there was no error or the closer is not yet closed, nil is returned.
-	Error() error
+	CloserError() error
 }
 
 //######################//
@@ -347,7 +347,7 @@ func (c *closer) OnClosing(f ...CloseFunc) {
 }
 
 // Implements the Closer interface.
-func (c *closer) Error() (err error) {
+func (c *closer) CloserError() (err error) {
 	if c.IsClosed() {
 		// No need for mutex lock since the closeErr is not modified
 		// after the closer has closed.

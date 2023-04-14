@@ -167,7 +167,7 @@ func TestCloserErrors(t *testing.T) {
 
 	// Create new closer and test CloseWithErr and Error now.
 	c = closer.New()
-	r.Nil(t, c.Error())
+	r.Nil(t, c.CloserError())
 	for i := 0; i < 3; i++ {
 		c.OnClosing(func() error { return errors.New("error closing") })
 		c.OnClose(func() error { return errors.New("error closed") })
@@ -180,7 +180,7 @@ func TestCloserErrors(t *testing.T) {
 	err = c.Close()
 	r.Error(t, err)
 	r.ErrorIs(t, err, errSpecific)
-	r.Same(t, err, c.Error())
+	r.Same(t, err, c.CloserError())
 }
 
 func TestCloseFuncsLIFO(t *testing.T) {
