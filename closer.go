@@ -379,8 +379,9 @@ func (c *closer) addError(err error) {
 }
 
 func (c *closer) Close() error {
-	// TODO: doc
 	// Close the closing channel to signal that this closer is about to close now.
+	// Do this in a locked context and release as soon as the channel is closed.
+	// If another close call is handling this context, then wait for it to exit before returning the error.
 	c.mx.Lock()
 	if c.IsClosing() {
 		c.mx.Unlock()
