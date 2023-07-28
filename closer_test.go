@@ -183,7 +183,7 @@ func TestCloserErrors(t *testing.T) {
 	r.Same(t, err, c.CloserError())
 }
 
-func TestCloseStackErrors(t *testing.T) {
+func TestCloseErrorsRace(t *testing.T) {
 	t.Parallel()
 
 	var (
