@@ -236,24 +236,21 @@ func New() Closer {
 }
 
 // Implements the Closer interface.
-func (c *closer) Close() error {
-	return c.close(nil)
-}
-
-// Implements the Closer interface.
 func (c *closer) Close_() {
 	_ = c.Close()
 }
 
 // Implements the Closer interface.
 func (c *closer) CloseWithErr(err error) {
-	_ = c.close(err)
+	c.addError(err)
+	c.Close_()
 }
 
 // Implements the Closer interface.
 func (c *closer) CloseWithErrAndDone(err error) {
+	c.addError(err)
 	c.wg.Done()
-	c.CloseWithErr(err)
+	c.Close_()
 }
 
 // Implements the Closer interface.
@@ -368,32 +365,46 @@ func newCloser() *closer {
 	}
 }
 
-func (c *closer) close(err error) error {
+func (c *closer) addError(err error) {
 	c.mx.Lock()
 	defer c.mx.Unlock()
 
-	// If the closer is already closing, just return the error.
-	if c.IsClosing() {
-		return c.closeErr
+	// If the closer is already closed, then don't add errors.
+	if c.IsClosed() {
+		return
 	}
 
 	// Join the error.
 	c.closeErr = errors.Join(c.closeErr, err)
+}
 
+func (c *closer) Close() error {
+	// TODO: doc
 	// Close the closing channel to signal that this closer is about to close now.
+	c.mx.Lock()
+	if c.IsClosing() {
+		c.mx.Unlock()
+		<-c.closedChan
+		return c.closeErr
+	}
 	close(c.closingChan)
+	c.mx.Unlock()
+
+	// We are in an unlocked state. Do not use c.closeErr directly.
+	var closeErrors error
 
 	// Execute all closing funcs of this closer in LIFO order.
 	for i := len(c.closingFuncs) - 1; i >= 0; i-- {
-		c.closeErr = errors.Join(c.closeErr, c.closingFuncs[i]())
+		closeErrors = errors.Join(closeErrors, c.closingFuncs[i]())
 	}
 
 	// Delete them, to free resources.
+	// This is safe, because this is the only context accessing this variable.
 	c.closingFuncs = nil
 
 	// Close all children and join their errors.
 	for _, child := range c.children {
-		c.closeErr = errors.Join(c.closeErr, child.Close())
+		closeErrors = errors.Join(closeErrors, child.Close())
 	}
 
 	// Wait, until all dependencies of this closer have closed.
@@ -401,14 +412,18 @@ func (c *closer) close(err error) error {
 
 	// Execute all close funcs of this closer in LIFO order.
 	for i := len(c.closeFuncs) - 1; i >= 0; i-- {
-		c.closeErr = errors.Join(c.closeErr, c.closeFuncs[i]())
+		closeErrors = errors.Join(closeErrors, c.closeFuncs[i]())
 	}
 
 	// Delete them, to free resources.
 	c.closeFuncs = nil
 
 	// Close the closed channel to signal that this closer is closed now.
+	// Finally merge the errors. Do this in a locked context.
+	c.mx.Lock()
+	c.closeErr = errors.Join(c.closeErr, closeErrors)
 	close(c.closedChan)
+	c.mx.Unlock()
 
 	// Close the parent now as well, if this is a two way closer.
 	// Otherwise, the closer must remove its reference from its parent's children
