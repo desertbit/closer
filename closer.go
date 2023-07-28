@@ -236,6 +236,72 @@ func New() Closer {
 }
 
 // Implements the Closer interface.
+func (c *closer) Close() error {
+	// Close the closing channel to signal that this closer is about to close now.
+	// Do this in a locked context and release as soon as the channel is closed.
+	// If another close call is handling this context, then wait for it to exit before returning the error.
+	c.mx.Lock()
+	if c.IsClosing() {
+		c.mx.Unlock()
+		<-c.closedChan
+		return c.closeErr
+	}
+	close(c.closingChan)
+	c.mx.Unlock()
+
+	// We are in an unlocked state. Do not use c.closeErr directly.
+	var closeErrors error
+
+	// Execute all closing funcs of this closer in LIFO order.
+	for i := len(c.closingFuncs) - 1; i >= 0; i-- {
+		closeErrors = errors.Join(closeErrors, c.closingFuncs[i]())
+	}
+
+	// Delete them, to free resources.
+	// This is safe, because this is the only context accessing this variable.
+	c.closingFuncs = nil
+
+	// Close all children and join their errors.
+	for _, child := range c.children {
+		closeErrors = errors.Join(closeErrors, child.Close())
+	}
+
+	// Wait, until all dependencies of this closer have closed.
+	c.wg.Wait()
+
+	// Execute all close funcs of this closer in LIFO order.
+	for i := len(c.closeFuncs) - 1; i >= 0; i-- {
+		closeErrors = errors.Join(closeErrors, c.closeFuncs[i]())
+	}
+
+	// Delete them, to free resources.
+	c.closeFuncs = nil
+
+	// Close the closed channel to signal that this closer is closed now.
+	// Finally merge the errors. Do this in a locked context.
+	c.mx.Lock()
+	c.closeErr = errors.Join(c.closeErr, closeErrors)
+	close(c.closedChan)
+	c.mx.Unlock()
+
+	// Close the parent now as well, if this is a two way closer.
+	// Otherwise, the closer must remove its reference from its parent's children
+	// to prevent a leak.
+	// Only perform these actions, if the parent is not closing already!
+	if c.parent != nil && !c.parent.IsClosing() {
+		if c.twoWay {
+			// Do not wait for the parent close. This may cause a dead-lock.
+			// Traversing up the closer tree does not require that the children wait for their parents.
+			go c.parent.Close_()
+		} else {
+			c.parent.removeChild(c)
+		}
+	}
+
+	return c.closeErr
+}
+
+// Implements the Closer interface.
 func (c *closer) Close_() {
 	_ = c.Close()
 }
@@ -376,71 +442,6 @@ func (c *closer) addError(err error) {
 
 	// Join the error.
 	c.closeErr = errors.Join(c.closeErr, err)
-}
-
-func (c *closer) Close() error {
-	// Close the closing channel to signal that this closer is about to close now.
-	// Do this in a locked context and release as soon as the channel is closed.
-	// If another close call is handling this context, then wait for it to exit before returning the error.
-	c.mx.Lock()
-	if c.IsClosing() {
-		c.mx.Unlock()
-		<-c.closedChan
-		return c.closeErr
-	}
-	close(c.closingChan)
-	c.mx.Unlock()
-
-	// We are in an unlocked state. Do not use c.closeErr directly.
-	var closeErrors error
-
-	// Execute all closing funcs of this closer in LIFO order.
-	for i := len(c.closingFuncs) - 1; i >= 0; i-- {
-		closeErrors = errors.Join(closeErrors, c.closingFuncs[i]())
-	}
-
-	// Delete them, to free resources.
-	// This is safe, because this is the only context accessing this variable.
-	c.closingFuncs = nil
-
-	// Close all children and join their errors.
-	for _, child := range c.children {
-		closeErrors = errors.Join(closeErrors, child.Close())
-	}
-
-	// Wait, until all dependencies of this closer have closed.
-	c.wg.Wait()
-
-	// Execute all close funcs of this closer in LIFO order.
-	for i := len(c.closeFuncs) - 1; i >= 0; i-- {
-		closeErrors = errors.Join(closeErrors, c.closeFuncs[i]())
-	}
-
-	// Delete them, to free resources.
-	c.closeFuncs = nil
-
-	// Close the closed channel to signal that this closer is closed now.
-	// Finally merge the errors. Do this in a locked context.
-	c.mx.Lock()
-	c.closeErr = errors.Join(c.closeErr, closeErrors)
-	close(c.closedChan)
-	c.mx.Unlock()
-
-	// Close the parent now as well, if this is a two way closer.
-	// Otherwise, the closer must remove its reference from its parent's children
-	// to prevent a leak.
-	// Only perform these actions, if the parent is not closing already!
-	if c.parent != nil && !c.parent.IsClosing() {
-		if c.twoWay {
-			// Do not wait for the parent close. This may cause a dead-lock.
-			// Traversing up the closer tree does not require that the children wait for their parents.
-			go c.parent.Close_()
-		} else {
-			c.parent.removeChild(c)
-		}
-	}
-
-	return c.closeErr
 }
 
 // addChild creates a new closer and adds it as either
