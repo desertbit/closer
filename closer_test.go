@@ -183,6 +183,26 @@ func TestCloserErrors(t *testing.T) {
 	r.Same(t, err, c.CloserError())
 }
 
+func TestCloseErrorsRace(t *testing.T) {
+	t.Parallel()
+
+	var (
+		err = errors.New("error")
+		c   = closer.New()
+	)
+
+	c.CloserAddWait(1)
+	go func() {
+		<-c.ClosingChan()
+		c.CloseWithErrAndDone(err)
+	}()
+
+	c.Close()
+
+	<-c.ClosedChan()
+	r.ErrorIs(t, c.CloserError(), err)
+}
+
 func TestCloseFuncsLIFO(t *testing.T) {
 	t.Parallel()
 
