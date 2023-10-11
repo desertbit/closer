@@ -247,22 +247,27 @@ func (c *closer) Close() error {
 		return c.closeErr
 	}
 	close(c.closingChan)
+	// Copy the internal variables to local variables. Otherwise direct access could cause a race.
+	var (
+		closingFuncs = c.closingFuncs
+		closeFuncs   = c.closeFuncs
+		children     = c.children
+	)
+	c.closingFuncs = nil
+	c.closeFuncs = nil
+	c.children = nil
 	c.mx.Unlock()
 
 	// We are in an unlocked state. Do not use c.closeErr directly.
 	var closeErrors error
 
 	// Execute all closing funcs of this closer in LIFO order.
-	for i := len(c.closingFuncs) - 1; i >= 0; i-- {
-		closeErrors = errors.Join(closeErrors, c.closingFuncs[i]())
+	for i := len(closingFuncs) - 1; i >= 0; i-- {
+		closeErrors = errors.Join(closeErrors, closingFuncs[i]())
 	}
 
-	// Delete them, to free resources.
-	// This is safe, because this is the only context accessing this variable.
-	c.closingFuncs = nil
-
 	// Close all children and join their errors.
-	for _, child := range c.children {
+	for _, child := range children {
 		closeErrors = errors.Join(closeErrors, child.Close())
 	}
 
@@ -270,12 +275,9 @@ func (c *closer) Close() error {
 	c.wg.Wait()
 
 	// Execute all close funcs of this closer in LIFO order.
-	for i := len(c.closeFuncs) - 1; i >= 0; i-- {
-		closeErrors = errors.Join(closeErrors, c.closeFuncs[i]())
+	for i := len(closeFuncs) - 1; i >= 0; i-- {
+		closeErrors = errors.Join(closeErrors, closeFuncs[i]())
 	}
-
-	// Delete them, to free resources.
-	c.closeFuncs = nil
 
 	// Close the closed channel to signal that this closer is closed now.
 	// Finally merge the errors. Do this in a locked context.
@@ -469,6 +471,10 @@ func (c *closer) removeChild(child *closer) {
 	defer c.mx.Unlock()
 
 	last := len(c.children) - 1
+	if last < 0 {
+		return
+	}
+
 	c.children[last].parentIndex = child.parentIndex
 	c.children[child.parentIndex] = c.children[last]
 	c.children[last] = nil
