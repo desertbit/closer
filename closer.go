@@ -179,6 +179,14 @@ type Closer interface {
 	// CloserError returns the joined error of this closer once it has fully closed.
 	// If there was no error or the closer is not yet closed, nil is returned.
 	CloserError() error
+
+	// CloserWait waits for the closer to close and returns the CloserError if present.
+	// Use the context to cancel the blocking wait.
+	CloserWait(ctx context.Context) error
+
+	// CloserWaitChan extends CloserWait by returning an error channel.
+	// If the context is canceled, the context error will be send over the channel.
+	CloserWaitChan(ctx context.Context) <-chan error
 }
 
 //######################//
@@ -419,6 +427,25 @@ func (c *closer) CloserError() (err error) {
 		err = c.closeErr
 	}
 	return
+}
+
+// Implements the Closer interface.
+func (c *closer) CloserWait(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.ClosedChan():
+		return c.CloserError()
+	}
+}
+
+// Implements the Closer interface.
+func (c *closer) CloserWaitChan(ctx context.Context) <-chan error {
+	waitChan := make(chan error, 1)
+	go func() {
+		waitChan <- c.CloserWait(ctx)
+	}()
+	return waitChan
 }
 
 //###############//
