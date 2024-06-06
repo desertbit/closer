@@ -584,12 +584,15 @@ func TestEndlessGrowth(t *testing.T) {
 func TestCloser_RunCloserRoutine(t *testing.T) {
 	t.Parallel()
 
-	c := closer.New()
-	started := make(chan struct{})
+	var (
+		c       = closer.New()
+		started = make(chan struct{})
+		err     = errors.New("error")
+	)
 
 	c.RunCloserRoutine(func() error {
 		close(started)
-		return errors.New("error")
+		return err
 	})
 
 	select {
@@ -599,8 +602,7 @@ func TestCloser_RunCloserRoutine(t *testing.T) {
 	}
 
 	c.Close_()
-	r.Error(t, c.CloserError())
-	r.Equal(t, c.CloserError().Error(), "error")
+	r.ErrorIs(t, c.CloserError(), err)
 }
 
 func TestCloser_RunCloserRoutine_DoNotRunIfClosed(t *testing.T) {
