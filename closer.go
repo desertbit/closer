@@ -121,8 +121,6 @@ type Closer interface {
 	// wait group. Useful to wait for routines associated
 	// with this closer to gracefully shutdown.
 	// See Close() for the position in the closing order.
-	// Hint: This call will have no effect after Close is called.
-	//       Ensure to not call Close asynchronously during an initialization phase.
 	CloserAddWait(delta int)
 
 	// CloserDone decrements the closer's wait group by one.
