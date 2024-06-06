@@ -46,6 +46,7 @@ package closer
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
 )
 
@@ -99,14 +100,12 @@ type Closer interface {
 
 	// CloseWithErrAndDone performs the same operation as CloseWithErr(), but decrements
 	// the closer's wait group by one beforehand.
-	// Attention: Calling this without first adding to the WaitGroup by
-	// calling CloserAddWait results in a panic.
+	// Attention: Calling this without first calling CloserAddWait results in a panic.
 	CloseWithErrAndDone(err error)
 
 	// CloseAndDone performs the same operation as Close(), but decrements
 	// the closer's wait group by one beforehand.
-	// Attention: Calling this without first adding to the WaitGroup by
-	// calling CloserAddWait() results in a panic.
+	// Attention: Calling this without first calling CloserAddWait results in a panic.
 	CloseAndDone() error
 
 	// CloseAndDone_ is a convenience version of CloseAndDone(), for use in
@@ -125,8 +124,7 @@ type Closer interface {
 	CloserAddWait(delta int)
 
 	// CloserDone decrements the closer's wait group by one.
-	// Attention: Calling this without first adding to the WaitGroup by
-	// calling CloserAddWait() results in a panic.
+	// Attention: Calling this without first calling CloserAddWait results in a panic.
 	CloserDone()
 
 	// CloserOneWay creates a new child closer that has a one-way relationship
@@ -190,6 +188,13 @@ type Closer interface {
 	// CloserWaitChan extends CloserWait by returning an error channel.
 	// If the context is canceled, the context error will be send over the channel.
 	CloserWaitChan(ctx context.Context) <-chan error
+
+	// RunCloserRoutine starts a closer goroutine:
+	// - call CloserAddWait
+	// - start a new goroutine
+	// - wait for the routine function to return
+	// - handle the error and close the closer by calling CloseWithErrAndDone
+	RunCloserRoutine(f func() error)
 }
 
 //######################//
@@ -228,7 +233,9 @@ type closer struct {
 	children []*closer
 	// Used to wait for external dependencies of the closer
 	// before the Close() method actually returns.
-	wg sync.WaitGroup
+	// Use a custom implementation, because the sync.WaitGroup Wait() method is not thread-safe.
+	waitCond  *sync.Cond
+	waitCount int64
 
 	// A flag that indicates whether this closer is a two-way closer.
 	// In comparison to a standard one-way closer, which closes when
@@ -283,7 +290,11 @@ func (c *closer) Close() error {
 	}
 
 	// Wait, until all dependencies of this closer have closed.
-	c.wg.Wait()
+	c.mx.Lock()
+	for c.waitCount > 0 {
+		c.waitCond.Wait()
+	}
+	c.mx.Unlock()
 
 	// Execute all close funcs of this closer in LIFO order.
 	for i := len(closeFuncs) - 1; i >= 0; i-- {
@@ -328,13 +339,12 @@ func (c *closer) CloseWithErr(err error) {
 // Implements the Closer interface.
 func (c *closer) CloseWithErrAndDone(err error) {
 	c.addError(err)
-	c.wg.Done()
-	c.Close_()
+	c.CloseAndDone_()
 }
 
 // Implements the Closer interface.
 func (c *closer) CloseAndDone() error {
-	c.wg.Done()
+	c.CloserDone()
 	return c.Close()
 }
 
@@ -350,12 +360,27 @@ func (c *closer) ClosedChan() <-chan struct{} {
 
 // Implements the Closer interface.
 func (c *closer) CloserAddWait(delta int) {
-	c.wg.Add(delta)
+	c.mx.Lock()
+	defer c.mx.Unlock()
+
+	c.waitCount += int64(delta)
+
+	if c.IsClosing() {
+		log.Println("Warning: CloserAddWait called during closing state")
+	}
 }
 
 // Implements the Closer interface.
 func (c *closer) CloserDone() {
-	c.wg.Done()
+	c.mx.Lock()
+	defer c.mx.Unlock()
+
+	c.waitCount--
+	c.waitCond.Broadcast()
+
+	if c.waitCount < 0 {
+		panic("CloserDone: negative wait counter")
+	}
 }
 
 // Implements the Closer interface.
@@ -462,16 +487,31 @@ func (c *closer) CloserWaitChan(ctx context.Context) <-chan error {
 	return waitChan
 }
 
+// Implements the Closer interface.
+func (c *closer) RunCloserRoutine(f func() error) {
+	c.CloserAddWait(1)
+	go func() {
+		// CloserAddWait will also add to a closed closer. Ensure we are not in a closing state.
+		if c.IsClosing() {
+			c.CloserDone()
+			return
+		}
+		c.CloseWithErrAndDone(f())
+	}()
+}
+
 //###############//
 //### Private ###//
 //###############//
 
 // newCloser creates a new closer with the given close funcs.
 func newCloser() *closer {
-	return &closer{
+	c := &closer{
 		closingChan: make(chan struct{}),
 		closedChan:  make(chan struct{}),
 	}
+	c.waitCond = sync.NewCond(&c.mx)
+	return c
 }
 
 func (c *closer) addError(err error) {

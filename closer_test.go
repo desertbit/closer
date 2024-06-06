@@ -29,6 +29,7 @@ package closer_test
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -122,6 +123,19 @@ func TestCloser_IsClosed(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+func TestCloser_WaitPanic(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("expected panic")
+		}
+	}()
+
+	c := closer.New()
+	c.CloserDone()
 }
 
 func TestCloser_Done(t *testing.T) {
@@ -581,4 +595,44 @@ func TestEndlessGrowth(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		r.NoError(t, children[i].Close())
 	}
+}
+
+func TestCloser_RunCloserRoutine(t *testing.T) {
+	t.Parallel()
+
+	var (
+		c       = closer.New()
+		started = make(chan struct{})
+		err     = errors.New("error")
+	)
+
+	c.RunCloserRoutine(func() error {
+		close(started)
+		return err
+	})
+
+	select {
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out")
+	case <-started:
+	}
+
+	c.Close_()
+	r.ErrorIs(t, c.CloserError(), err)
+}
+
+func TestCloser_RunCloserRoutine_DoNotRunIfClosed(t *testing.T) {
+	t.Parallel()
+
+	c := closer.New()
+	c.Close_()
+
+	var v atomic.Bool
+	c.RunCloserRoutine(func() (err error) {
+		v.Store(true)
+		return nil
+	})
+
+	time.Sleep(time.Second)
+	r.False(t, v.Load())
 }
