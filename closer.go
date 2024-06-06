@@ -153,6 +153,9 @@ type Closer interface {
 	// context is no longer needed, to free resources.
 	Context() (context.Context, context.CancelFunc)
 
+	// CloseOnContextDone closes the closer if the context is done.
+	CloseOnContextDone(context.Context)
+
 	// IsClosed returns a boolean indicating
 	// whether this instance has been closed completely.
 	IsClosed() bool
@@ -383,6 +386,17 @@ func (c *closer) Context() (context.Context, context.CancelFunc) {
 	}()
 
 	return ctx, cancel
+}
+
+// Implements the Closer interface.
+func (c *closer) CloseOnContextDone(ctx context.Context) {
+	go func() {
+		select {
+		case <-c.closingChan:
+		case <-ctx.Done():
+			c.Close_()
+		}
+	}()
 }
 
 // Implements the Closer interface.

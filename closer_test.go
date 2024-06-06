@@ -249,6 +249,22 @@ func TestCloser_Context(t *testing.T) {
 	}
 }
 
+func TestCloser_ContextClose(t *testing.T) {
+	t.Parallel()
+
+	// Test closing the closer through the context.
+	c := closer.New()
+	ctx, cancel := c.Context()
+	c.CloseOnContextDone(ctx)
+	time.Sleep(time.Millisecond)
+	cancel()
+	select {
+	case <-c.ClosedChan():
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	}
+}
+
 func TestCloser_OneWay(t *testing.T) {
 	// Simple test case.
 	t.Run("CloseFunc", testOneWayCloseFunc)
