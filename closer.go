@@ -48,6 +48,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 )
@@ -186,6 +187,13 @@ type Closer interface {
 	// CloserWaitChan extends CloserWait by returning an error channel.
 	// If the context is canceled, the context error will be send over the channel.
 	CloserWaitChan(ctx context.Context) <-chan error
+
+	// BlockCloser ensures that during the function execution, the closer will not reach the
+	// closed state. This is handled by calling CloserAddWait.
+	// This call will return ErrClosed, if the closer is already closed.
+	// This method can be used to free C memory during OnClose and ensures,
+	// that pointers are not used after beeing freed.
+	BlockCloser(f func() error) error
 
 	// RunCloserRoutine starts a closer goroutine:
 	// - call CloserAddWait
@@ -340,12 +348,16 @@ func (c *closer) CloseAndDone_() {
 
 // Implements the Closer interface.
 func (c *closer) CloserAddWait(delta int) {
+	c.closerAddWait(delta, true)
+}
+
+func (c *closer) closerAddWait(delta int, logEnabled bool) {
 	c.mx.Lock()
 	defer c.mx.Unlock()
 
 	c.waitCount += int64(delta)
 
-	if c.IsClosing() {
+	if logEnabled && c.IsClosing() {
 		log.Println("Warning: CloserAddWait called during closing state")
 	}
 }
@@ -370,7 +382,7 @@ func (c *closer) CloserOneWay() Closer {
 
 // Implements the Closer interface.
 func (c *closer) CloserTwoWay() Closer {
-	log.Println("Warning: CloserTwoWay is deprecated. Use the closer directly")
+	log.Println("Warning: CloserTwoWay is deprecated. Use the closer directly.")
 	return c
 }
 
@@ -474,13 +486,50 @@ func (c *closer) CloserWaitChan(ctx context.Context) <-chan error {
 }
 
 // Implements the Closer interface.
+func (c *closer) BlockCloser(f func() error) error {
+	var trace string
+	if debugEnabled {
+		trace = stacktrace(2)
+	}
+
+	c.closerAddWait(1, false)
+
+	return func() error {
+		defer c.CloserDone()
+
+		// CloserAddWait will also add to a closed closer. Ensure we are not in a closing state.
+		if c.IsClosing() {
+			return ErrClosed
+		}
+
+		// Print a debug stacktrace if build with debugging mode.
+		if debugEnabled {
+			doneChan := make(chan struct{})
+			go func() {
+				<-c.closingChan
+				select {
+				case <-doneChan:
+					return
+				case <-time.After(debugLogAfterTimeout):
+					// Use fmt instead of log for additional new line printing.
+					fmt.Fprintf(os.Stderr, "\nDEBUG: BlockCloser takes longer than expected to close:\n%s\n\n", trace)
+				}
+			}()
+			defer close(doneChan)
+		}
+
+		return f()
+	}()
+}
+
+// Implements the Closer interface.
 func (c *closer) RunCloserRoutine(f func() error) {
 	var trace string
 	if debugEnabled {
 		trace = stacktrace(2)
 	}
 
-	c.CloserAddWait(1)
+	c.closerAddWait(1, false)
 	go func() {
 		// CloserAddWait will also add to a closed closer. Ensure we are not in a closing state.
 		if c.IsClosing() {
@@ -496,9 +545,9 @@ func (c *closer) RunCloserRoutine(f func() error) {
 				select {
 				case <-doneChan:
 					return
-				case <-time.After(3 * time.Second):
+				case <-time.After(debugLogAfterTimeout):
 					// Use fmt instead of log for additional new line printing.
-					fmt.Printf("\nDEBUG: RunCloserRoutine takes longer than expected to close:\n%s\n\n", trace)
+					fmt.Fprintf(os.Stderr, "\nDEBUG: RunCloserRoutine takes longer than expected to close:\n%s\n\n", trace)
 				}
 			}()
 			defer close(doneChan)
