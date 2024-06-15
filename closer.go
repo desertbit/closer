@@ -129,7 +129,7 @@ type Closer interface {
 	// See Close() for the position in the closing order.
 	CloserOneWay() Closer
 
-	// CloserTwoWay is deprecated. Use one closer instance instead.
+	// CloserTwoWay is deprecated. Instead use one closer instance.
 	CloserTwoWay() Closer
 
 	// Context returns a context.Context, which is cancelled
