@@ -260,7 +260,7 @@ type closer struct {
 
 // New creates a new closer.
 func New() Closer {
-	return newCloser()
+	return newCloser(3)
 }
 
 // Implements the Closer interface.
@@ -578,12 +578,28 @@ func (c *closer) RunCloserRoutine(f func() error) {
 //###############//
 
 // newCloser creates a new closer with the given close funcs.
-func newCloser() *closer {
+func newCloser(debugSkipStacktrace int) *closer {
 	c := &closer{
 		closingChan: make(chan struct{}),
 		closedChan:  make(chan struct{}),
 	}
 	c.waitCond = sync.NewCond(&c.mx)
+
+	// Print a debug stacktrace if build with debugging mode.
+	if debugEnabled {
+		trace := stacktrace(debugSkipStacktrace)
+		go func() {
+			<-c.closingChan
+			select {
+			case <-c.closedChan:
+				return
+			case <-time.After(debugLogAfterTimeout):
+				// Use fmt instead of log for additional new line printing.
+				fmt.Fprintf(os.Stderr, "\nDEBUG: Closer takes longer than expected to close:\n%s\n\n", trace)
+			}
+		}()
+	}
+
 	return c
 }
 
@@ -605,7 +621,7 @@ func (c *closer) addError(err error) {
 func (c *closer) addChild(twoWay bool) *closer {
 	// Create a new closer and set the current closer as its parent.
 	// Also set the twoWay flag.
-	child := newCloser()
+	child := newCloser(4)
 	child.parent = c
 	child.twoWay = twoWay
 
