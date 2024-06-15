@@ -91,6 +91,7 @@ type Closer interface {
 	//
 	// The returned error contains the joined errors of all closers that were part of
 	// the blocking closing order of this closer.
+	// This means that two-way closers do not report their parents' errors.
 	Close() error
 
 	// Close_ is a convenience version of Close(), for use in defer
@@ -130,7 +131,10 @@ type Closer interface {
 	// See Close() for the position in the closing order.
 	CloserOneWay() Closer
 
-	// CloserTwoWay is deprecated. Instead use one closer instance.
+	// CloserTwoWay creates a new child closer that has a two-way relationship
+	// with the current closer. This means that the child is closed whenever
+	// the parent closes and vice versa.
+	// See Close() for the position in the closing order.
 	CloserTwoWay() Closer
 
 	// Context returns a context.Context, which is cancelled
@@ -243,6 +247,12 @@ type closer struct {
 	waitCond  *sync.Cond
 	waitCount int64
 
+	// A flag that indicates whether this closer is a two-way closer.
+	// In comparison to a standard one-way closer, which closes when
+	// its parent closes, a two-way closer closes also its parent, when
+	// it itself gets closed.
+	twoWay bool
+
 	// The index of this closer in its parent's children slice.
 	// Needed to efficiently remove the closer from its parent.
 	parentIndex int
@@ -308,11 +318,18 @@ func (c *closer) Close() error {
 	close(c.closedChan)
 	c.mx.Unlock()
 
-	// All children are one way closers. The closer must remove its reference
-	// from its parent's children to prevent a leak.
+	// Close the parent now as well, if this is a two way closer.
+	// Otherwise, the closer must remove its reference from its parent's children
+	// to prevent a leak.
 	// Only perform these actions, if the parent is not closing already!
 	if c.parent != nil && !c.parent.IsClosing() {
-		c.parent.removeChild(c)
+		if c.twoWay {
+			// Do not wait for the parent close. This may cause a dead-lock.
+			// Traversing up the closer tree does not require that the children wait for their parents.
+			go c.parent.Close_()
+		} else {
+			c.parent.removeChild(c)
+		}
 	}
 
 	return c.closeErr
@@ -377,13 +394,12 @@ func (c *closer) CloserDone() {
 
 // Implements the Closer interface.
 func (c *closer) CloserOneWay() Closer {
-	return c.addChild()
+	return c.addChild(false)
 }
 
 // Implements the Closer interface.
 func (c *closer) CloserTwoWay() Closer {
-	log.Println("Warning: CloserTwoWay is deprecated. Use the closer directly.")
-	return c
+	return c.addChild(true)
 }
 
 // Implements the Closer interface.
@@ -584,11 +600,14 @@ func (c *closer) addError(err error) {
 	c.closeErr = errors.Join(c.closeErr, err)
 }
 
-// addChild creates a new closer and adds it as a one-way child to this closer.
-func (c *closer) addChild() *closer {
+// addChild creates a new closer and adds it as either
+// a one-way or two-way child to this closer.
+func (c *closer) addChild(twoWay bool) *closer {
 	// Create a new closer and set the current closer as its parent.
+	// Also set the twoWay flag.
 	child := newCloser()
 	child.parent = c
+	child.twoWay = twoWay
 
 	// Add the closer to the current closer's children.
 	c.mx.Lock()
