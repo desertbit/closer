@@ -25,22 +25,6 @@
  * SOFTWARE.
  */
 
-// Package closer offers a simple, thread-safe closer.
-//
-// It allows to build up a tree of closing relationships, where you typically
-// start with a root closer that branches into different children and
-// children's children. When a parent closer spawns a child closer, the child
-// either has a one-way or two-way connection to its parent. One-way children
-// are closed when their parent closes. In addition, two-way children also close
-// their parent, if they are closed themselves.
-//
-// A closer is also useful to ensure that certain dependencies, such as network
-// connections, are reliably taken down, once the closer closes.
-// In addition, a closer can be concurrently closed many times, without closing
-// more than once, but still returning the errors to every caller.
-//
-// This allows to represent complex closing relationships and helps avoiding
-// leaking goroutines, gracefully shutting down, etc.
 package closer
 
 import "time"
