@@ -597,6 +597,52 @@ func TestEndlessGrowth(t *testing.T) {
 	}
 }
 
+func TestCloser_BlockCloser(t *testing.T) {
+	t.Parallel()
+
+	var (
+		v  atomic.Bool
+		ch = make(chan struct{})
+		c  = closer.New()
+	)
+
+	go func() {
+		_ = c.BlockCloser(func() (err error) {
+			<-ch
+			ch <- struct{}{}
+			if c.IsClosed() {
+				v.Store(true)
+			}
+			ch <- struct{}{}
+			return nil
+		})
+	}()
+
+	ch <- struct{}{}
+	go c.Close()
+	time.Sleep(time.Second)
+	<-ch
+	<-ch
+
+	r.False(t, v.Load())
+}
+
+func TestCloser_BlockCloser_DoNotRunIfClosed(t *testing.T) {
+	t.Parallel()
+
+	c := closer.New()
+	c.Close_()
+
+	var v atomic.Bool
+	err = c.BlockCloser(func() (err error) {
+		v.Store(true)
+		return nil
+	})
+
+	r.False(t, v.Load())
+	r.ErrorIs(t, err, closer.ErrClosed)
+}
+
 func TestCloser_RunCloserRoutine(t *testing.T) {
 	t.Parallel()
 
