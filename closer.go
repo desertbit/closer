@@ -49,6 +49,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -604,6 +605,11 @@ func newCloser(debugSkipStacktrace int) *closer {
 				fmt.Fprintf(os.Stderr, "\nDEBUG: Closer takes longer than expected to close:\n%s\n\n", trace)
 			}
 		}()
+		runtime.SetFinalizer(c, func(c *closer) {
+			if !c.IsClosed() {
+				fmt.Fprintf(os.Stderr, "\nDEBUG: Closer was not closed after GC collection\n%s\n\n", trace)
+			}
+		})
 	}
 
 	return c

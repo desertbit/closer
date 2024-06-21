@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"time"
 )
 
 const (
@@ -54,4 +55,14 @@ func stacktrace(skip int) string {
 		b.WriteString(fmt.Sprintf("    %s()\n        %s:%d", fn.Name(), path, line))
 	}
 	return b.String()
+}
+
+// Force GC cycles to trigger all the registered finalizers.
+func init() {
+	go func() {
+		for {
+			time.Sleep(10 * time.Second)
+			runtime.GC()
+		}
+	}()
 }
