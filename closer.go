@@ -375,7 +375,13 @@ func (c *closer) closerAddWait(delta int, logEnabled bool) {
 	c.waitCount += int64(delta)
 
 	if logEnabled && c.IsClosing() {
-		log.Println("Warning: CloserAddWait called during closing state")
+		// Print a debug stacktrace if build with debugging mode.
+		if debugEnabled {
+			// Use fmt instead of log for additional new line printing.
+			fmt.Fprintf(os.Stderr, "\nDEBUG: CloserAddWait called during closing state:\n%s\n\n", stacktrace(3))
+		} else {
+			log.Println("Warning: CloserAddWait called during closing state")
+		}
 	}
 }
 
