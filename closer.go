@@ -596,7 +596,7 @@ func newCloser(debugSkipStacktrace int) *closer {
 	c := &closer{
 		closingChan: make(chan struct{}),
 		closedChan:  make(chan struct{}),
-	}rrr
+	}
 	c.waitCond = sync.NewCond(&c.mx)
 
 	// Print a debug stacktrace if build with debugging mode.
