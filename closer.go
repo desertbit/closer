@@ -529,10 +529,14 @@ func (c *closer) BlockCloser(f func() error) error {
 			doneChan := make(chan struct{})
 			go func() {
 				<-c.closingChan
+
+				t := time.NewTimer(debugLogAfterTimeout)
+				defer t.Stop()
+
 				select {
 				case <-doneChan:
 					return
-				case <-time.After(debugLogAfterTimeout):
+				case <-t.C:
 					// Use fmt instead of log for additional new line printing.
 					fmt.Fprintf(os.Stderr, "\nDEBUG: BlockCloser takes longer than expected to close:\n%s\n\n", trace)
 				}
@@ -564,10 +568,14 @@ func (c *closer) RunCloserRoutine(f func() error) {
 			doneChan := make(chan struct{})
 			go func() {
 				<-c.closingChan
+
+				t := time.NewTimer(debugLogAfterTimeout)
+				defer t.Stop()
+
 				select {
 				case <-doneChan:
 					return
-				case <-time.After(debugLogAfterTimeout):
+				case <-t.C:
 					// Use fmt instead of log for additional new line printing.
 					fmt.Fprintf(os.Stderr, "\nDEBUG: RunCloserRoutine takes longer than expected to close:\n%s\n\n", trace)
 				}
@@ -596,10 +604,14 @@ func newCloser(debugSkipStacktrace int) *closer {
 		trace := stacktrace(debugSkipStacktrace)
 		go func() {
 			<-c.closingChan
+
+			t := time.NewTimer(debugLogAfterTimeout)
+			defer t.Stop()
+
 			select {
 			case <-c.closedChan:
 				return
-			case <-time.After(debugLogAfterTimeout):
+			case <-t.C:
 				// Use fmt instead of log for additional new line printing.
 				fmt.Fprintf(os.Stderr, "\nDEBUG: Closer takes longer than expected to close:\n%s\n\n", trace)
 			}
