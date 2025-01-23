@@ -682,3 +682,18 @@ func TestCloser_RunCloserRoutine_DoNotRunIfClosed(t *testing.T) {
 	time.Sleep(time.Second)
 	r.False(t, v.Load())
 }
+
+func TestCloser_NewCloser_DoNotRunIfClosed(t *testing.T) {
+	t.Parallel()
+
+	c := closer.New()
+	c.Close_()
+
+	cc := c.CloserTwoWay()
+	r.True(t, cc.IsClosing())
+	r.True(t, cc.IsClosed())
+
+	cc = c.CloserOneWay()
+	r.True(t, cc.IsClosing())
+	r.True(t, cc.IsClosed())
+}

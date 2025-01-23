@@ -467,15 +467,29 @@ func (c *closer) IsClosed() bool {
 // Implements the Closer interface.
 func (c *closer) OnClose(f ...CloseFunc) {
 	c.mx.Lock()
+	defer c.mx.Unlock()
+
+	// FIXME: we can not fix this without breaking the API.
+	/* if c.IsClosing() {
+	        ...
+			return
+		} */
+
 	c.closeFuncs = append(c.closeFuncs, f...)
-	c.mx.Unlock()
 }
 
 // Implements the Closer interface.
 func (c *closer) OnClosing(f ...CloseFunc) {
 	c.mx.Lock()
+	defer c.mx.Unlock()
+
+	// FIXME: we can not fix this without breaking the API.
+	/* if c.IsClosing() {
+	        ...
+			return
+		} */
+
 	c.closingFuncs = append(c.closingFuncs, f...)
-	c.mx.Unlock()
 }
 
 // Implements the Closer interface.
@@ -643,11 +657,23 @@ func (c *closer) addChild(twoWay bool) *closer {
 	child.parent = c
 	child.twoWay = twoWay
 
-	// Add the closer to the current closer's children.
 	c.mx.Lock()
+	defer c.mx.Unlock()
+
+	// FIXME: because we can not fix OnClose & OnClosing, we must delay the child close.
+	// The onClose & OnClosing callbacks are mostly created during construction phases. Ensure they are added before we close.
+	// Close the new closer if the parent is already closed.
+	if c.IsClosing() {
+		go func() {
+			time.Sleep(3 * time.Second)
+			child.Close_()
+		}()
+		return child
+	}
+
+	// Add the closer to the current closer's children.
 	child.parentIndex = len(c.children)
 	c.children = append(c.children, child)
-	c.mx.Unlock()
 
 	return child
 }
