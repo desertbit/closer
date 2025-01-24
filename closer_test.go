@@ -709,3 +709,34 @@ func TestCloser_NewCloser_DoNotRunIfClosed(t *testing.T) {
 	r.True(t, cc.IsClosing())
 	r.True(t, cc.IsClosed())
 }
+
+func TestCloser_Hook_Close(t *testing.T) {
+	t.Parallel()
+
+	c := New()
+	c.Close()
+
+	var v atomic.Int32
+	Hook(c, func(h H) {
+		h.OnClose(func() {
+			v.Add(1)
+		})
+		h.OnClosing(func() {
+			v.Add(1)
+		})
+	})
+	r.Equal(t, v.Load(), int32(2))
+
+	v.Store(0)
+	err := HookWithErr(c, func(h H) error {
+		h.OnClose(func() {
+			v.Add(1)
+		})
+		h.OnClosing(func() {
+			v.Add(1)
+		})
+		return nil
+	})
+	r.Equal(t, v.Load(), int32(0)) // Hooks must not run.
+	r.ErrorIs(t, err, ErrClosed)
+}

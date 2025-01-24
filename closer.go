@@ -55,18 +55,63 @@ import (
 // ErrClosed is a generic error that indicates a resource has been closed.
 var ErrClosed = errors.New("closed")
 
-// TODO: doc.
+// A Closer is a thread-safe helper for common close actions.
 type Closer interface {
+	// Close closes this closer in a thread-safe manner.
+	//
+	// Implements the io.Closer interface.
+	//
+	// This method always returns the close error,
+	// regardless of how often it gets called.
+	//
+	// The closing order looks like this:
+	// 1: the closing chan is closed.
+	// 2: the OnClosing funcs are executed.
+	// 3: each of the closer's children is closed.
+	// 4: it waits for the wait group.
+	// 5: the OnClose funcs are executed.
+	// 6: the closed chan is closed.
+	// 7: the parent is closed, if it has one.
+	//
+	// Close blocks, until step 6 of the closing order
+	// has been finished. A potential parent gets
+	// closed concurrently in a new goroutine.
+	//
+	// The returned error contains the joined errors of all closers that were part of
+	// the blocking closing order of this closer.
+	// This means that two-way closers do not report their parents' errors.
 	Close() error
+
+	// CloseErr returns the joined error of this closer once it has fully closed.
+	// If there was no error or the closer is not yet closed, nil is returned.
 	CloseErr() error
 
+	// AsyncClose closes the this closer without blocking.
+	// Use this within Block() calls or Routines().
 	AsyncClose()
+
+	// AsyncCloseWithErr appends the given error to its joined error and calls AsyncClose.
+	// If the closer is already closed, the error will be ignored. During the closing state errors can be appended.
 	AsyncCloseWithErr(error)
 
+	// ClosingChan returns a channel, which is closed as
+	// soon as the closer is about to close.
+	// Remains closed, once ClosedChan() has also been closed.
+	// See Close() for the position in the closing order.
 	ClosingChan() <-chan struct{}
+
+	// ClosedChan returns a channel, which is closed as
+	// soon as the closer is completely closed.
+	// See Close() for the position in the closing order.
 	ClosedChan() <-chan struct{}
 
+	// IsClosing returns a boolean indicating
+	// whether this instance is about to close.
+	// Also returns true, if IsClosed() returns true.
 	IsClosing() bool
+
+	// IsClosed returns a boolean indicating
+	// whether this instance has been closed completely.
 	IsClosed() bool
 }
 
@@ -75,15 +120,27 @@ func New() Closer {
 	return newCloser(3)
 }
 
+// TwoWay creates a new child closer that has a two-way relationship
+// with the parent closer. This means that the child is closed whenever
+// the parent closes and vice versa.
+// See Close() for the position in the closing order.
 func TwoWay(p Closer) Closer {
 	return toInternal(p).addChild(true)
 }
 
+// OneWay creates a new child closer that has a one-way relationship
+// with the parent closer. This means that the child is closed whenever
+// the parent closes, but not vice versa.
+// See Close() for the position in the closing order.
 func OneWay(p Closer) Closer {
 	return toInternal(p).addChild(false)
 }
 
-// TODO: doc.
+// Block ensures that during the function execution, the closer will not reach the
+// closed state. This is handled with an internal wait group.
+// This call will return ErrClosed, if the closer is already closed.
+// This method can be used to free C memory during OnClose and ensures,
+// that pointers are not used after beeing freed.
 func Block(cl Closer, f func() error) error {
 	var trace string
 	if debugEnabled {
@@ -126,6 +183,8 @@ func Block(cl Closer, f func() error) error {
 	}()
 }
 
+// Wait waits for the closer to close and returns the CloserError if present.
+// Use the context to cancel the blocking wait.
 func Wait(cl Closer, ctx context.Context) error {
 	select {
 	case <-ctx.Done():
@@ -135,6 +194,8 @@ func Wait(cl Closer, ctx context.Context) error {
 	}
 }
 
+// WaitChan extends Wait by returning an error channel.
+// If the context is canceled, the context error will be send over the channel.
 func WaitChan(cl Closer, ctx context.Context) <-chan error {
 	waitChan := make(chan error, 1)
 	go func() {
@@ -143,6 +204,11 @@ func WaitChan(cl Closer, ctx context.Context) <-chan error {
 	return waitChan
 }
 
+// Routine starts a closer goroutine:
+// - increment the internal wait group.
+// - start a new goroutine
+// - wait for the routine function to return
+// - handle the error, decrement the wait group and close the closer
 func Routine(cl Closer, f func() error) {
 	var trace string
 	if debugEnabled {

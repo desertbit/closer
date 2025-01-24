@@ -32,14 +32,32 @@ import (
 )
 
 type H interface {
+	// OnClose same as OnCloseWithErr but without error.
 	OnClose(f ...func())
+
+	// OnClosing same as OnClosingWithErr but without error.
 	OnClosing(f ...func())
 
+	// OnCloseWithErr adds the given functions to the closer.
+	// Their errors are joined with the closer's other errors.
+	// Close functions are called in LIFO order.
+	// See Close() for their position in the closing order.
 	OnCloseWithErr(f ...func() error)
+
+	// OnClosingWithErr adds the given functions to the closer.
+	// Their errors are joined with the closer's other errors.
+	// Closing functions are called in LIFO order.
+	// It is guaranteed that all closing funcs within this hook scope are executed before
+	// any close funcs.
+	// See Close() for their position in the closing order.
 	OnClosingWithErr(f ...func() error)
 }
 
-// TODO: doc, that the hook must not be used after the function scope.
+// Hook can be used to register closer hooks.
+// Do not use the passed hook H after the function goes out-of-scope.
+// Hook gaurenetees, that the newly registered hooks within this context will be called after the function scope.
+// This also applies, if the closer is already closed.
+// Use this call to register all hooks within a constructor function.
 func Hook(cl Closer, f func(H)) {
 	// Early close not possible. We can not return an error.
 	// Ensure to always call the hook function, otherwise the caller must check for nil values...
@@ -48,6 +66,8 @@ func Hook(cl Closer, f func(H)) {
 	h.commit()
 }
 
+// HookWithErr same as Hook, but returns the inner error.
+// If the closer is already closed, then the inner function will not run and ErrClosed will be returned.
 func HookWithErr(cl Closer, f func(H) error) error {
 	return Block(cl, func() error {
 		h := newHook(cl)

@@ -57,16 +57,24 @@ func (c *ctx) Value(key any) any {
 	return nil
 }
 
+// Context returns a context.Context, which is done
+// as soon as the closer is closing.
+// The retuned error will be ErrClosed.
 func Context(cl Closer) context.Context {
 	return &ctx{
 		doneChan: cl.ClosingChan(), // We will use the closing chan, because otherwise deadlocks are possible.
 	}
 }
 
+// Context returns a context.Context, which is cancelled
+// as soon as the closer is closing.
+// The returned cancel func should be called as soon as the
+// context is no longer needed, to free resources.
 func ContextWithCancel(cl Closer) (context.Context, context.CancelFunc) {
 	return context.WithCancel(Context(cl))
 }
 
+// OnContextDoneClose closes the closer if the context is done.
 func OnContextDoneClose(ctx context.Context, cl Closer) {
 	go func() {
 		select {
