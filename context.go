@@ -25,15 +25,54 @@
  * SOFTWARE.
  */
 
-package main
+package closer
 
-func main() {
-	// Create the main application.
-	app := newApp()
+import (
+	"context"
+	"time"
+)
 
-	// Run the application.
-	app.run()
+type ctx struct {
+	doneChan <-chan struct{}
+}
 
-	// Wait until the app closed completely.
-	<-app.ClosedChan()
+func (c *ctx) Deadline() (deadline time.Time, ok bool) {
+	return
+}
+
+func (c *ctx) Done() <-chan struct{} {
+	return c.doneChan
+}
+
+func (c *ctx) Err() error {
+	select {
+	case <-c.doneChan:
+		return ErrClosed
+	default:
+		return nil
+	}
+}
+
+func (c *ctx) Value(key any) any {
+	return nil
+}
+
+func Context(cl Closer) context.Context {
+	return &ctx{
+		doneChan: cl.ClosingChan(), // We will use the closing chan, because otherwise deadlocks are possible.
+	}
+}
+
+func ContextWithCancel(cl Closer) (context.Context, context.CancelFunc) {
+	return context.WithCancel(Context(cl))
+}
+
+func OnContextDoneClose(ctx context.Context, cl Closer) {
+	go func() {
+		select {
+		case <-cl.ClosingChan():
+		case <-ctx.Done():
+			cl.Close()
+		}
+	}()
 }
