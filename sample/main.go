@@ -27,13 +27,26 @@
 
 package main
 
+import (
+	"fmt"
+	"os"
+
+	"github.com/desertbit/closer/v4"
+)
+
 func main() {
+	cl := closer.New()
+
 	// Create the main application.
-	app := newApp()
+	app := newApp(cl)
 
 	// Run the application.
 	app.run()
 
 	// Wait until the app closed completely.
-	<-app.ClosedChan()
+	err := closer.Wait(cl)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 }

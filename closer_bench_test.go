@@ -25,12 +25,10 @@
  * SOFTWARE.
  */
 
-package closer_test
+package closer
 
 import (
 	"testing"
-
-	"github.com/desertbit/closer/v3"
 )
 
 var err error
@@ -46,9 +44,9 @@ func BenchmarkCloser_CloserOneWay(b *testing.B) {
 func benchmarkCloserOneWay1P100CCloseP(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		p := closer.New()
+		p := New()
 		for j := 0; j < 100; j++ {
-			_ = p.CloserOneWay()
+			_ = OneWay(p)
 		}
 		b.StartTimer()
 
@@ -59,10 +57,10 @@ func benchmarkCloserOneWay1P100CCloseP(b *testing.B) {
 func benchmarkCloserOneWay1P100CCloseC(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		p := closer.New()
-		cs := make([]closer.Closer, 100)
+		p := New()
+		cs := make([]Closer, 100)
 		for j := 0; j < 100; j++ {
-			cs[j] = p.CloserOneWay()
+			cs[j] = OneWay(p)
 		}
 		b.StartTimer()
 
@@ -76,11 +74,11 @@ func benchmarkCloserOneWay1P100CCloseC(b *testing.B) {
 func benchmarkCloserOneWay1P100C10CCCloseP(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		p := closer.New()
+		p := New()
 		for j := 0; j < 100; j++ {
-			c := p.CloserOneWay()
+			c := OneWay(p)
 			for k := 0; k < 10; k++ {
-				_ = c.CloserOneWay()
+				_ = OneWay(c)
 			}
 		}
 		b.StartTimer()
@@ -92,12 +90,12 @@ func benchmarkCloserOneWay1P100C10CCCloseP(b *testing.B) {
 func benchmarkCloserOneWay1P100C10CCCloseC(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		p := closer.New()
-		cs := make([]closer.Closer, 100)
+		p := New()
+		cs := make([]Closer, 100)
 		for j := 0; j < 100; j++ {
-			cs[j] = p.CloserOneWay()
+			cs[j] = OneWay(p)
 			for k := 0; k < 10; k++ {
-				_ = cs[j].CloserOneWay()
+				_ = OneWay(cs[j])
 			}
 		}
 		b.StartTimer()
@@ -112,13 +110,13 @@ func benchmarkCloserOneWay1P100C10CCCloseC(b *testing.B) {
 func benchmarkCloserOneWay1P100C10CCCloseCC(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		p := closer.New()
-		cs := make([]closer.Closer, 100)
-		ccs := make([]closer.Closer, 100*10)
+		p := New()
+		cs := make([]Closer, 100)
+		ccs := make([]Closer, 100*10)
 		for j := 0; j < 100; j++ {
-			cs[j] = p.CloserOneWay()
+			cs[j] = OneWay(p)
 			for k := 0; k < 10; k++ {
-				ccs[j*10+k] = cs[j].CloserOneWay()
+				ccs[j*10+k] = OneWay(cs[j])
 			}
 		}
 		b.StartTimer()

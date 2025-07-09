@@ -25,45 +25,62 @@
  * SOFTWARE.
  */
 
-package main
+package closer
 
 import (
-	"fmt"
-
-	"github.com/desertbit/closer/v4"
+	"context"
+	"time"
 )
 
-const numberListenRoutines = 5
-
-type server struct {
-	closer.Closer
+type ctx struct {
+	doneChan <-chan struct{}
 }
 
-func newServer(cl closer.Closer) (s *server) {
-	closer.Hook(cl, func(h H) {
-		s = &server{
-			Closer: cl,
-		}
-		h.OnClose(func() {
-			fmt.Println("server closing")
-		})
-	})
-	return s
+func (c *ctx) Deadline() (deadline time.Time, ok bool) {
+	return
 }
 
-func (s *server) run() {
-	// Fire up several routines and make sure our closer waits for each of them when closing.
-	for i := 0; i < numberListenRoutines; i++ {
-		closer.Routine(s, s.listenRoutine)
+func (c *ctx) Done() <-chan struct{} {
+	return c.doneChan
+}
+
+func (c *ctx) Err() error {
+	select {
+	case <-c.doneChan:
+		return ErrClosed
+	default:
+		return nil
 	}
-
-	fmt.Println("server up and running...")
 }
 
-func (s *server) listenRoutine() error {
-	// Normally, some work is performed here...
-	<-s.ClosingChan()
-	fmt.Println("server listen routine shutting down")
-
+func (c *ctx) Value(key any) any {
 	return nil
+}
+
+// Context returns a context.Context, which is done
+// as soon as the closer is closing.
+// The retuned error will be ErrClosed.
+func Context(cl Closer) context.Context {
+	return &ctx{
+		doneChan: cl.ClosingChan(), // We will use the closing chan, because otherwise deadlocks are possible.
+	}
+}
+
+// Context returns a context.Context, which is cancelled
+// as soon as the closer is closing.
+// The returned cancel func should be called as soon as the
+// context is no longer needed, to free resources.
+func ContextWithCancel(cl Closer) (context.Context, context.CancelFunc) {
+	return context.WithCancel(Context(cl))
+}
+
+// OnContextDoneClose closes the closer if the context is done.
+func OnContextDoneClose(ctx context.Context, cl Closer) {
+	go func() {
+		select {
+		case <-cl.ClosingChan():
+		case <-ctx.Done():
+			cl.Close()
+		}
+	}()
 }

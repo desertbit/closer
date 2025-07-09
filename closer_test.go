@@ -25,7 +25,7 @@
  * SOFTWARE.
  */
 
-package closer_test
+package closer
 
 import (
 	"errors"
@@ -33,7 +33,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/desertbit/closer/v3"
 	r "github.com/stretchr/testify/require"
 )
 
@@ -41,7 +40,7 @@ func TestCloser_Close(t *testing.T) {
 	t.Parallel()
 
 	// Test the closer with nil errors.
-	c := closer.New()
+	c := New()
 	r.False(t, c.IsClosed())
 	select {
 	case <-c.ClosedChan():
@@ -64,9 +63,11 @@ func TestCloser_Close(t *testing.T) {
 	}
 
 	// Test closer with non-nil errors.
-	c = closer.New()
-	c.OnClose(func() error {
-		return errors.New("test")
+	c = New()
+	Hook(c, func(h H) {
+		h.OnCloseWithErr(func() error {
+			return errors.New("test")
+		})
 	})
 
 	r.False(t, c.IsClosed())
@@ -94,16 +95,17 @@ func TestCloser_Close(t *testing.T) {
 func TestCloser_IsClosing(t *testing.T) {
 	t.Parallel()
 
-	p := closer.New()
-	p.OnClose(func() error {
-		// Check here whether the child signals that it is about to close.
-		r.True(t, p.IsClosing())
-		select {
-		case <-p.ClosingChan():
-		default:
-			t.Fatal("closer should be closing")
-		}
-		return nil
+	p := New()
+	Hook(p, func(h H) {
+		h.OnClose(func() {
+			// Check here whether the child signals that it is about to close.
+			r.True(t, p.IsClosing())
+			select {
+			case <-p.ClosingChan():
+			default:
+				t.Fatal("closer should be closing")
+			}
+		})
 	})
 }
 
@@ -111,17 +113,18 @@ func TestCloser_IsClosed(t *testing.T) {
 	t.Parallel()
 
 	// One parent with a direct one-way child.
-	p := closer.New()
-	c := p.CloserOneWay()
-	p.OnClose(func() error {
-		// Check here whether the child signals that it is completely closed.
-		r.True(t, c.IsClosed())
-		select {
-		case <-c.ClosedChan():
-		default:
-			t.Fatal("child closer should be closed")
-		}
-		return nil
+	p := New()
+	c := OneWay(p)
+	Hook(p, func(h H) {
+		h.OnClose(func() {
+			// Check here whether the child signals that it is completely closed.
+			r.True(t, c.IsClosed())
+			select {
+			case <-c.ClosedChan():
+			default:
+				t.Fatal("child closer should be closed")
+			}
+		})
 	})
 }
 
@@ -134,19 +137,19 @@ func TestCloser_WaitPanic(t *testing.T) {
 		}
 	}()
 
-	c := closer.New()
-	c.CloserDone()
+	c := toInternal(New())
+	c.waitDone()
 }
 
 func TestCloser_Done(t *testing.T) {
 	t.Parallel()
 
-	c := closer.New()
-	c.CloserAddWait(3)
-	c.CloserDone()
-	c.CloserDone()
-	c.CloserDone()
-	go c.Close_()
+	c := toInternal(New())
+	c.addWait(3)
+	c.waitDone()
+	c.waitDone()
+	c.waitDone()
+	go c.Close()
 
 	select {
 	case <-c.ClosedChan():
@@ -160,17 +163,22 @@ func TestCloserErrors(t *testing.T) {
 
 	errSpecific := errors.New("specific error")
 
-	c := closer.New()
-	for i := 0; i < 3; i++ {
-		c.OnClosing(func() error { return errors.New("error closing") })
-		c.OnClose(func() error { return errors.New("error closed") })
-	}
-	c1 := c.CloserOneWay()
-	for i := 0; i < 3; i++ {
-		c1.OnClosing(func() error { return errors.New("error closing") })
-		c1.OnClose(func() error { return errors.New("error closed") })
-	}
-	c1.OnClosing(func() error { return errSpecific })
+	c := New()
+	Hook(c, func(h H) {
+		for i := 0; i < 3; i++ {
+			h.OnClosingWithErr(func() error { return errors.New("error closing") })
+			h.OnCloseWithErr(func() error { return errors.New("error closed") })
+		}
+	})
+
+	c1 := OneWay(c)
+	Hook(c1, func(h H) {
+		for i := 0; i < 3; i++ {
+			h.OnClosingWithErr(func() error { return errors.New("error closing") })
+			h.OnCloseWithErr(func() error { return errors.New("error closed") })
+		}
+		h.OnClosingWithErr(func() error { return errSpecific })
+	})
 
 	// Execute multiple times to test, that the error does not change between calls.
 	for i := 0; i < 3; i++ {
@@ -180,41 +188,42 @@ func TestCloserErrors(t *testing.T) {
 	}
 
 	// Create new closer and test CloseWithErr and Error now.
-	c = closer.New()
-	r.Nil(t, c.CloserError())
-	for i := 0; i < 3; i++ {
-		c.OnClosing(func() error { return errors.New("error closing") })
-		c.OnClose(func() error { return errors.New("error closed") })
-	}
+	c = New()
+	r.Nil(t, c.CloseErr())
+	Hook(c, func(h H) {
+		for i := 0; i < 3; i++ {
+			h.OnClosingWithErr(func() error { return errors.New("error closing") })
+			h.OnCloseWithErr(func() error { return errors.New("error closed") })
+		}
+	})
+
 	// Execute multiple times to test, that the error does not change between calls.
 	for i := 0; i < 3; i++ {
-		c.CloseWithErr(errSpecific)
+		c.AsyncCloseWithErr(errSpecific)
 	}
 
-	err = c.Close()
+	err := c.Close()
 	r.Error(t, err)
 	r.ErrorIs(t, err, errSpecific)
-	r.Same(t, err, c.CloserError())
+	r.Same(t, err, c.CloseErr())
 }
 
-func TestCloseErrorsRace(t *testing.T) {
+func TestCloseRoutineError(t *testing.T) {
 	t.Parallel()
 
 	var (
 		err = errors.New("error")
-		c   = closer.New()
+		c   = New()
 	)
 
-	c.CloserAddWait(1)
-	go func() {
+	Routine(c, func() error {
 		<-c.ClosingChan()
-		c.CloseWithErrAndDone(err)
-	}()
+		return err
+	})
 
-	c.Close()
+	time.Sleep(10 * time.Millisecond)
 
-	<-c.ClosedChan()
-	r.ErrorIs(t, c.CloserError(), err)
+	r.ErrorIs(t, c.Close(), err)
 }
 
 func TestCloseFuncsLIFO(t *testing.T) {
@@ -222,22 +231,20 @@ func TestCloseFuncsLIFO(t *testing.T) {
 
 	orderChan := make(chan int, 4)
 
-	c := closer.New()
-	c.OnClose(func() error {
-		orderChan <- 0
-		return nil
-	})
-	c.OnClose(func() error {
-		orderChan <- 1
-		return nil
-	})
-	c.OnClose(func() error {
-		orderChan <- 2
-		return nil
-	})
-	c.OnClose(func() error {
-		orderChan <- 3
-		return nil
+	c := New()
+	Hook(c, func(h H) {
+		h.OnClose(func() {
+			orderChan <- 0
+		})
+		h.OnClose(func() {
+			orderChan <- 1
+		})
+		h.OnClose(func() {
+			orderChan <- 2
+		})
+		h.OnClose(func() {
+			orderChan <- 3
+		})
 	})
 
 	err := c.Close()
@@ -251,11 +258,10 @@ func TestCloseFuncsLIFO(t *testing.T) {
 func TestCloser_Context(t *testing.T) {
 	t.Parallel()
 
-	// Test closing the closer.
-	c := closer.New()
-	ctx, _ := c.Context()
-	c.Close_()
-	time.Sleep(time.Millisecond)
+	// Test closing the
+	c := New()
+	ctx := Context(c)
+	c.Close()
 	select {
 	case <-ctx.Done():
 	case <-time.After(time.Second):
@@ -267,9 +273,9 @@ func TestCloser_ContextClose(t *testing.T) {
 	t.Parallel()
 
 	// Test closing the closer through the context.
-	c := closer.New()
-	ctx, cancel := c.Context()
-	c.CloseOnContextDone(ctx)
+	c := New()
+	ctx, cancel := ContextWithCancel(c)
+	OnContextDoneClose(ctx, c)
 	time.Sleep(time.Millisecond)
 	cancel()
 	select {
@@ -291,9 +297,9 @@ func testOneWayCloseFunc(t *testing.T) {
 	t.Parallel()
 
 	// A closer chain with only one-way closers.
-	p := closer.New()
-	c1 := p.CloserOneWay()
-	c2 := c1.CloserOneWay()
+	p := New()
+	c1 := OneWay(p)
+	c2 := OneWay(c1)
 
 	// Close a child and check that the parent does not close.
 	err := c2.Close()
@@ -301,22 +307,22 @@ func testOneWayCloseFunc(t *testing.T) {
 	r.False(t, c1.IsClosing())
 	r.False(t, c1.IsClosed())
 
-	p.OnClosing(func() error {
-		r.True(t, p.IsClosing())
-		r.False(t, p.IsClosed())
+	Hook(p, func(h H) {
+		h.OnClosing(func() {
+			r.True(t, p.IsClosing())
+			r.False(t, p.IsClosed())
 
-		r.False(t, c1.IsClosing())
-		r.False(t, c1.IsClosed())
-		return nil
-	})
+			r.False(t, c1.IsClosing())
+			r.False(t, c1.IsClosed())
+		})
 
-	p.OnClose(func() error {
-		r.True(t, p.IsClosing())
-		r.False(t, p.IsClosed())
+		h.OnClose(func() {
+			r.True(t, p.IsClosing())
+			r.False(t, p.IsClosed())
 
-		r.True(t, c1.IsClosing())
-		r.True(t, c1.IsClosed())
-		return nil
+			r.True(t, c1.IsClosing())
+			r.True(t, c1.IsClosed())
+		})
 	})
 
 	// Close the parent now.
@@ -329,37 +335,35 @@ func testOneWayRoutines(t *testing.T) {
 	t.Parallel()
 
 	// One parent with 2 direct, one-way children.
-	p := closer.New()
-	c1 := p.CloserOneWay()
-	c2 := p.CloserOneWay()
+	p := New()
+	c1 := OneWay(p)
+	c2 := OneWay(p)
 
-	p.OnClose(func() error {
-		// Both children must be closed before the parent closes.
-		r.True(t, c1.IsClosed())
-		r.True(t, c2.IsClosed())
-		return nil
+	Hook(p, func(h H) {
+		h.OnClose(func() {
+			// Both children must be closed before the parent closes.
+			r.True(t, c1.IsClosed())
+			r.True(t, c2.IsClosed())
+		})
 	})
 
 	// The first child has a child of its own.
-	cc1 := c1.CloserOneWay()
+	cc1 := OneWay(c1)
 
-	c1.OnClose(func() error {
-		// The child must be closed before.
-		r.True(t, cc1.IsClosed())
-		return nil
+	Hook(c1, func(h H) {
+		h.OnClose(func() {
+			// The child must be closed before.
+			r.True(t, cc1.IsClosed())
+		})
 	})
-
-	c1.CloserAddWait(1)
-	c2.CloserAddWait(1)
-	cc1.CloserAddWait(2) // Try two routines.
 
 	// Start routines for each of the children.
 	retChan := make(chan error, 4)
-	f := func(c closer.Closer) {
+	f := func(c Closer) {
 		var err error
 		select {
-		case <-c.ClosingChan():
-			err = c.CloseAndDone()
+		case <-c.ClosedChan():
+			err = c.CloseErr()
 		case <-time.After(time.Second):
 			err = errors.New("routine timed out")
 		}
@@ -399,45 +403,50 @@ func testTwoWayCloseFunc(t *testing.T) {
 	t.Parallel()
 
 	// A closer chain with only two-way closers.
-	p := closer.New()
-	c1 := p.CloserTwoWay()
-	c2 := c1.CloserTwoWay()
+	p := New()
+	c1 := TwoWay(p)
+	c2 := TwoWay(c1)
 
-	p.OnClose(func() error {
-		r.True(t, p.IsClosing())
-		r.False(t, p.IsClosed())
+	Hook(p, func(h H) {
+		h.OnClose(func() {
+			r.True(t, p.IsClosing())
+			r.False(t, p.IsClosed())
 
-		r.True(t, c1.IsClosing())
-		r.True(t, c1.IsClosed())
+			r.True(t, c1.IsClosing())
+			r.True(t, c1.IsClosed())
 
-		r.True(t, c2.IsClosing())
-		r.True(t, c2.IsClosed())
-		return nil
+			r.True(t, c2.IsClosing())
+			r.True(t, c2.IsClosed())
+		})
 	})
-	c1.OnClose(func() error {
-		// We closed the first-level child, at least the second-level child must be closed.
-		// The parent must not be closing yet.
-		r.False(t, p.IsClosing())
-		r.False(t, p.IsClosed())
 
-		r.True(t, c1.IsClosing())
-		r.False(t, c1.IsClosed())
+	Hook(c1, func(h H) {
+		h.OnClose(func() {
+			// We closed the first-level child, at least the second-level child must be closed.
+			// The parent must not be closing yet.
+			r.False(t, p.IsClosing())
+			r.False(t, p.IsClosed())
 
-		r.True(t, c2.IsClosing())
-		r.True(t, c2.IsClosed())
-		return nil
+			r.True(t, c1.IsClosing())
+			r.False(t, c1.IsClosed())
+
+			r.True(t, c2.IsClosing())
+			r.True(t, c2.IsClosed())
+		})
 	})
-	c2.OnClose(func() error {
-		// We closed the second-level child, all others must not yet be closing.
-		r.False(t, p.IsClosing())
-		r.False(t, p.IsClosed())
 
-		r.False(t, c1.IsClosing())
-		r.False(t, c1.IsClosed())
+	Hook(c2, func(h H) {
+		h.OnClose(func() {
+			// We closed the second-level child, all others must not yet be closing.
+			r.False(t, p.IsClosing())
+			r.False(t, p.IsClosed())
 
-		r.True(t, c2.IsClosing())
-		r.False(t, c2.IsClosed())
-		return nil
+			r.False(t, c1.IsClosing())
+			r.False(t, c1.IsClosed())
+
+			r.True(t, c2.IsClosing())
+			r.False(t, c2.IsClosed())
+		})
 	})
 
 	// Close the lowest child now.
@@ -452,44 +461,49 @@ func testTwoWayCloseFunc(t *testing.T) {
 	}
 
 	// Repeat the test, but this time close the parent.
-	p = closer.New()
-	c1 = p.CloserTwoWay()
-	c2 = c1.CloserTwoWay()
+	p = New()
+	c1 = TwoWay(p)
+	c2 = TwoWay(c1)
 
-	p.OnClose(func() error {
-		r.True(t, p.IsClosing())
-		r.False(t, p.IsClosed())
+	Hook(p, func(h H) {
+		h.OnClose(func() {
+			r.True(t, p.IsClosing())
+			r.False(t, p.IsClosed())
 
-		r.True(t, c1.IsClosing())
-		r.True(t, c1.IsClosed())
+			r.True(t, c1.IsClosing())
+			r.True(t, c1.IsClosed())
 
-		r.True(t, c2.IsClosing())
-		r.True(t, c2.IsClosed())
-		return nil
+			r.True(t, c2.IsClosing())
+			r.True(t, c2.IsClosed())
+		})
 	})
-	c1.OnClose(func() error {
-		// We close the child, so the parent and the other children must close first.
-		r.True(t, p.IsClosing())
-		r.False(t, p.IsClosed())
 
-		r.True(t, c1.IsClosing())
-		r.False(t, c1.IsClosed())
+	Hook(c1, func(h H) {
+		h.OnClose(func() {
+			// We close the child, so the parent and the other children must close first.
+			r.True(t, p.IsClosing())
+			r.False(t, p.IsClosed())
 
-		r.True(t, c2.IsClosing())
-		r.True(t, c2.IsClosed())
-		return nil
+			r.True(t, c1.IsClosing())
+			r.False(t, c1.IsClosed())
+
+			r.True(t, c2.IsClosing())
+			r.True(t, c2.IsClosed())
+		})
 	})
-	c2.OnClose(func() error {
-		// We close the child, so the parent and the other children must close first.
-		r.True(t, p.IsClosing())
-		r.False(t, p.IsClosed())
 
-		r.True(t, c1.IsClosing())
-		r.False(t, c1.IsClosed())
+	Hook(c2, func(h H) {
+		h.OnClose(func() {
+			// We close the child, so the parent and the other children must close first.
+			r.True(t, p.IsClosing())
+			r.False(t, p.IsClosed())
 
-		r.True(t, c2.IsClosing())
-		r.False(t, c2.IsClosed())
-		return nil
+			r.True(t, c1.IsClosing())
+			r.False(t, c1.IsClosed())
+
+			r.True(t, c2.IsClosing())
+			r.False(t, c2.IsClosed())
+		})
 	})
 
 	// Close the parent this time.
@@ -502,44 +516,43 @@ func testTwoWayRoutines(t *testing.T) {
 	t.Parallel()
 
 	// One parent with 2 direct, two-way children.
-	p := closer.New()
-	c1 := p.CloserTwoWay()
-	c2 := p.CloserTwoWay()
+	p := New()
+	c1 := TwoWay(p)
+	c2 := TwoWay(p)
 
-	p.OnClose(func() error {
-		// Both children must be closed
-		r.True(t, c1.IsClosed())
-		r.True(t, c2.IsClosed())
-		return nil
+	Hook(p, func(h H) {
+		h.OnClose(func() {
+			// Both children must be closed
+			r.True(t, c1.IsClosed())
+			r.True(t, c2.IsClosed())
+		})
 	})
 
 	// This is a child of the first child. This closer
 	// will be closed.
-	cc1 := c1.CloserTwoWay()
-	cc1.OnClose(func() error {
-		r.False(t, p.IsClosed())
-		r.False(t, c1.IsClosed())
-		r.False(t, c2.IsClosed())
-		return nil
+	cc1 := TwoWay(c1)
+	Hook(cc1, func(h H) {
+		h.OnClose(func() {
+			r.False(t, p.IsClosed())
+			r.False(t, c1.IsClosed())
+			r.False(t, c2.IsClosed())
+		})
 	})
 
-	c1.OnClose(func() error {
-		r.True(t, cc1.IsClosed())
-		r.False(t, p.IsClosed())
-		r.False(t, c2.IsClosed())
-		return nil
+	Hook(c1, func(h H) {
+		h.OnClose(func() {
+			r.True(t, cc1.IsClosed())
+			r.False(t, p.IsClosed())
+			r.False(t, c2.IsClosed())
+		})
 	})
-
-	p.CloserAddWait(1)
-	c1.CloserAddWait(1)
-	c2.CloserAddWait(1)
 
 	retChan := make(chan error, 4)
-	f := func(c closer.Closer) {
+	f := func(c Closer) {
 		var err error
 		select {
-		case <-c.ClosingChan():
-			err = c.CloseAndDone()
+		case <-c.ClosedChan():
+			err = c.CloseErr()
 		case <-time.After(time.Second):
 			err = errors.New("routine timed out")
 		}
@@ -565,15 +578,14 @@ func testTwoWayRoutines(t *testing.T) {
 func testTwoWayParentWaitGroup(t *testing.T) {
 	t.Parallel()
 
-	p := closer.New()
-	c := p.CloserTwoWay()
+	p := New()
+	c := TwoWay(p)
 
-	go func() {
-		p.CloserAddWait(1)
-		defer p.CloseAndDone_()
-
-		c.Close_()
-	}()
+	// Will increment the wait group.
+	Routine(p, func() error {
+		c.Close()
+		return nil
+	})
 
 	select {
 	case <-time.After(3 * time.Second):
@@ -587,10 +599,10 @@ func TestEndlessGrowth(t *testing.T) {
 
 	// Test is mainly there for 100% test coverage.
 
-	c := closer.New()
-	children := make([]closer.Closer, 0, 1000)
+	c := New()
+	children := make([]Closer, 0, 1000)
 	for i := 0; i < 1000; i++ {
-		children = append(children, c.CloserOneWay())
+		children = append(children, OneWay(c))
 	}
 	for i := 0; i < 1000; i++ {
 		r.NoError(t, children[i].Close())
@@ -603,11 +615,11 @@ func TestCloser_BlockCloser(t *testing.T) {
 	var (
 		v  atomic.Bool
 		ch = make(chan struct{})
-		c  = closer.New()
+		c  = New()
 	)
 
 	go func() {
-		_ = c.BlockCloser(func() (err error) {
+		_ = Block(c, func() (err error) {
 			<-ch
 			ch <- struct{}{}
 			if c.IsClosed() {
@@ -630,29 +642,29 @@ func TestCloser_BlockCloser(t *testing.T) {
 func TestCloser_BlockCloser_DoNotRunIfClosed(t *testing.T) {
 	t.Parallel()
 
-	c := closer.New()
-	c.Close_()
+	c := New()
+	c.Close()
 
 	var v atomic.Bool
-	err = c.BlockCloser(func() (err error) {
+	err := Block(c, func() (err error) {
 		v.Store(true)
 		return nil
 	})
 
 	r.False(t, v.Load())
-	r.ErrorIs(t, err, closer.ErrClosed)
+	r.ErrorIs(t, err, ErrClosed)
 }
 
 func TestCloser_RunCloserRoutine(t *testing.T) {
 	t.Parallel()
 
 	var (
-		c       = closer.New()
+		c       = New()
 		started = make(chan struct{})
 		err     = errors.New("error")
 	)
 
-	c.RunCloserRoutine(func() error {
+	Routine(c, func() error {
 		close(started)
 		return err
 	})
@@ -663,18 +675,18 @@ func TestCloser_RunCloserRoutine(t *testing.T) {
 	case <-started:
 	}
 
-	c.Close_()
-	r.ErrorIs(t, c.CloserError(), err)
+	c.Close()
+	r.ErrorIs(t, c.CloseErr(), err)
 }
 
 func TestCloser_RunCloserRoutine_DoNotRunIfClosed(t *testing.T) {
 	t.Parallel()
 
-	c := closer.New()
-	c.Close_()
+	c := New()
+	c.Close()
 
 	var v atomic.Bool
-	c.RunCloserRoutine(func() (err error) {
+	Routine(c, func() (err error) {
 		v.Store(true)
 		return nil
 	})
@@ -686,14 +698,45 @@ func TestCloser_RunCloserRoutine_DoNotRunIfClosed(t *testing.T) {
 func TestCloser_NewCloser_DoNotRunIfClosed(t *testing.T) {
 	t.Parallel()
 
-	c := closer.New()
-	c.Close_()
+	c := New()
+	c.Close()
 
-	cc := c.CloserTwoWay()
+	cc := TwoWay(c)
 	r.True(t, cc.IsClosing())
 	r.True(t, cc.IsClosed())
 
-	cc = c.CloserOneWay()
+	cc = OneWay(c)
 	r.True(t, cc.IsClosing())
 	r.True(t, cc.IsClosed())
+}
+
+func TestCloser_Hook_Close(t *testing.T) {
+	t.Parallel()
+
+	c := New()
+	c.Close()
+
+	var v atomic.Int32
+	Hook(c, func(h H) {
+		h.OnClose(func() {
+			v.Add(1)
+		})
+		h.OnClosing(func() {
+			v.Add(1)
+		})
+	})
+	r.Equal(t, v.Load(), int32(2))
+
+	v.Store(0)
+	err := HookWithErr(c, func(h H) error {
+		h.OnClose(func() {
+			v.Add(1)
+		})
+		h.OnClosing(func() {
+			v.Add(1)
+		})
+		return nil
+	})
+	r.Equal(t, v.Load(), int32(0)) // Hooks must not run.
+	r.ErrorIs(t, err, ErrClosed)
 }

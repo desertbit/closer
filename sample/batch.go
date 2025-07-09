@@ -30,7 +30,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/desertbit/closer/v3"
+	"github.com/desertbit/closer/v4"
 )
 
 const numberBatchRoutines = 10
@@ -39,34 +39,34 @@ type batch struct {
 	closer.Closer
 }
 
-func newBatch(cl closer.Closer) *batch {
-	b := &batch{
-		Closer: cl,
-	}
-	// Print a message once the batch closes.
-	b.OnClose(func() error {
-		fmt.Println("batch closing")
-		return nil
+func newBatch(cl closer.Closer) (b *batch) {
+	closer.Hook(cl, func(h H) {
+		b = &batch{
+			Closer: cl,
+		}
+		// Print a message once the batch closes.
+		h.OnClose(func() {
+			fmt.Println("batch closing")
+		})
 	})
 	return b
 }
 
 func (b *batch) run() {
-	// Fire up several routines and make sure
-	b.Closer.CloserAddWait(numberBatchRoutines)
 	for i := 0; i < numberBatchRoutines; i++ {
-		go b.workRoutine()
+		closer.Routine(b.workRoutine)
 	}
 
 	fmt.Println("batch up and running...")
 }
 
-func (b *batch) workRoutine() {
+func (b *batch) workRoutine() error {
 	// If one work routine dies, we let the others continue their work,
-	// so do not close on defer here, but still decrement the wait group.
-	defer b.CloserDone()
+	// so do not close on defer here. closer.Routine will handle this.
 
 	// Normally, some work is performed here...
 	<-b.ClosingChan()
 	fmt.Println("batch routine shutting down")
+
+	return nil
 }

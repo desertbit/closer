@@ -32,16 +32,16 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/desertbit/closer/v3"
+	"github.com/desertbit/closer/v4"
 )
 
 type app struct {
 	closer.Closer
 }
 
-func newApp() *app {
+func newApp(cl closer.Closer) *app {
 	return &app{
-		Closer: closer.New(),
+		Closer: cl,
 	}
 }
 
@@ -50,14 +50,14 @@ func (a *app) run() {
 	// The batch may fail, but we do not want it to crash our whole
 	// application, therefore, we use a OneWay closer, which closes
 	// the batch when the app closes, but not vice versa.
-	batch := newBatch(a.CloserOneWay())
+	batch := newBatch(closer.OneWay(a))
 	batch.run()
 
 	// Create the server.
 	// When the server fails, our application should cease to exist.
 	// Use a TwoWay closer, so that the app and server close each other
 	// when one encounters an error.
-	server := newServer(a.CloserTwoWay())
+	server := newServer(closer.TwoWay(a))
 	server.run()
 
 	// For the sake of the example, close the server or the batch
