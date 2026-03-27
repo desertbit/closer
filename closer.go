@@ -48,7 +48,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -261,6 +263,22 @@ func RoutineWithCloser(cl Closer, f func(Closer) error) {
 	Routine(cl, func() error {
 		return f(cl)
 	})
+}
+
+// CloseOnInterrupt closes the closer when an interrupt or termination signal
+// (SIGINT, SIGTERM) is received. This method does not block.
+func CloseOnInterrupt(cl Closer) {
+	go func() {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(ch)
+
+		select {
+		case <-ch:
+			cl.Close()
+		case <-cl.ClosingChan():
+		}
+	}()
 }
 
 //######################//
